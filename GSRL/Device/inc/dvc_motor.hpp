@@ -18,6 +18,8 @@
 #include "gsrl_common.h"
 #include "alg_pid.hpp"
 #include "drv_can.h"
+#include <cstdint>
+#include <stdint.h>
 
 /* Exported types ------------------------------------------------------------*/
 
@@ -65,12 +67,12 @@ protected:
 public:
     virtual ~Motor() = default;
     // 通信相关
-    uint32_t getMotorControlMessageID() const;
-    uint32_t getMotorFeedbackMessageID() const;
+    uint32_t getMotorControlMessageID();
+    uint32_t getMotorFeedbackMessageID();
     const CAN_TxHeaderTypeDef *getMotorControlHeader() const;
     const uint8_t *getMotorControlData();
-    bool decodeCanRxMessageFromQueue(const can_rx_message_t *rxMessage, uint8_t Size);
-    bool decodeCanRxMessageFromISR(const can_rx_message_t *rxMessage);
+    virtual bool decodeCanRxMessageFromQueue(const can_rx_message_t *rxMessage, uint8_t Size);
+    virtual bool decodeCanRxMessageFromISR(const can_rx_message_t *rxMessage);
     const uint8_t *getMotorFeedbackData() const;
     // 获取当前状态相关
     fp32 getCurrentAngle() const;
@@ -179,6 +181,95 @@ public:
     bool decodeCanRxMessage(const can_rx_message_t &rxMessage) override;
     void setMotorZeroPosition();
 };
+
+/**
+ * @brief 云深处 J60 电机类
+ * @details 适用于 J60 电机 CAN 通信模式 (1Mbps)
+ */
+class MotorJ60 : public Motor
+{
+public:
+    uint8_t m_jointID; // 电机关节ID (默认为1)
+    enum MotorState
+    {
+        DISABLED = 0, // 失能
+        ENABLED,      // 使能
+        ERROR         // 错误保护
+    };
+
+    struct J60Error
+    {
+        bool underVoltage;   // < 18V
+        bool overVoltage;    // > 36V
+        bool overCurrent;    // > 28A
+        bool motorOverTemp;  // > 125C
+        bool driverOverTemp; // > 120C
+        uint8_t rawErrorCode;
+    };
+
+     static uint16_t generateCanID(uint8_t jointID, uint8_t txRxFlag, uint8_t cmdID){
+        uint16_t temp = jointID | (cmdID << 5);
+        return temp;
+    }
+    MotorJ60(uint8_t motorID, Controller *controller);
+    
+    void convertControllerOutputToMotorControlData() override;
+    bool decodeCanRxMessage(const can_rx_message_t &rxMessage) override;
+
+    // 状态管理
+    void enable();
+    void disable();
+    void constructRTR(uint8_t cmdID);
+    void clearError();
+    void setZeroPosition();
+    
+    // 控制接口
+    void setControlParams(fp32 p, fp32 v, fp32 t, fp32 kp, fp32 kd);
+    
+    // 获取状态
+    MotorState getState() const { return m_state; }
+    J60Error getError() const { return m_error; }
+
+    // 调试辅助
+    uint8_t getEnableCmdTxCountDebug() const { return m_enableCmdTxCount; }
+
+private:
+    MotorState m_state;
+    J60Error m_error;
+
+    // 电机ID (0-15)
+    uint8_t m_motorID;
+
+    // 命令索引常量
+    static constexpr uint8_t CMD_DISABLE = 1;
+    static constexpr uint8_t CMD_ENABLE = 2;
+    static constexpr uint8_t CMD_CONTROL = 4;
+    static constexpr uint8_t CMD_CLEAR_ERROR = 17;
+    static constexpr uint8_t CMD_GET_STATUS = 23;
+
+
+    static constexpr uint8_t TX_FLAG = 0;
+    static constexpr uint8_t RX_FLAG = 1;
+
+    // 当前发送的命令索引
+    uint8_t m_sendingCmdIndex;
+
+    // 控制参数缓存
+    fp32 m_cmdP, m_cmdV, m_cmdT, m_cmdKp, m_cmdKd;
+    uint8_t m_enableCmdTxCount; // 使能命令发送计数
+    uint8_t m_zeroCmdTxCount;   // 零点设置命令发送计数
+
+    // 限制常量（按J60协议）
+    const fp32 P_MIN = -40.0f, P_MAX = 40.0f;
+    const fp32 V_MIN = -40.0f, V_MAX = 40.0f;
+    const fp32 T_MIN = -40.0f, T_MAX = 40.0f;
+    const fp32 KP_MIN = 0.0f, KP_MAX = 1023.0f;
+    const fp32 KD_MIN = 0.5f, KD_MAX = 1.0f; // 协议规定范围
+
+    void setControlHeader(uint8_t cmdID, uint8_t dlc);
+   
+};
+
 
 /* Exported constants --------------------------------------------------------*/
 

@@ -13,6 +13,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "dvc_motor.hpp"
 #include "alg_general.hpp"
+#include <cstdint>
 #include <math.h>
 
 /* Typedef -------------------------------------------------------------------*/
@@ -35,7 +36,7 @@
  * @brief 获取电机CAN控制消息ID
  * @return uint32_t 电机CAN控制消息ID
  */
-uint32_t Motor::getMotorControlMessageID() const
+uint32_t Motor::getMotorControlMessageID()
 {
     return m_motorControlMessageID;
 }
@@ -44,7 +45,7 @@ uint32_t Motor::getMotorControlMessageID() const
  * @brief 获取电机CAN反馈消息ID
  * @return uint32_t 电机CAN反馈消息ID
  */
-uint32_t Motor::getMotorFeedbackMessageID() const
+uint32_t Motor::getMotorFeedbackMessageID()
 {
     return m_motorFeedbackMessageID;
 }
@@ -697,4 +698,216 @@ bool MotorDM4310::decodeCanRxMessage(const can_rx_message_t &rxMessage)
 void MotorDM4310::setMotorZeroPosition()
 {
     m_setZeroPositionFlag = true;
+}
+
+/******************************************************************************
+ *                           MotorJ60实现
+ ******************************************************************************/
+
+MotorJ60::MotorJ60(uint8_t jointID, Controller *controller)
+    : Motor(generateCanID(jointID, TX_FLAG, CMD_ENABLE), 
+    generateCanID(jointID, RX_FLAG, CMD_ENABLE), controller),
+    m_jointID(jointID),
+    m_state(DISABLED),
+    m_error({false, false, false, false, false, 0}),
+    m_motorID(jointID),
+    m_sendingCmdIndex(CMD_CONTROL),
+    m_cmdP(0.0f), m_cmdV(0.0f), m_cmdT(0.0f), m_cmdKp(0.0f), m_cmdKd(0.0f),
+    m_zeroCmdTxCount(0)
+{
+    // J60 CAN ID 动态变化：发送 ID = (CmdIndex << 5) | JointID
+    //                    返回 ID = (CmdIndex << 5) | (JointID + 0x10)
+}
+
+void MotorJ60::enable()
+{
+    m_enableCmdTxCount = 10;
+    m_sendingCmdIndex = CMD_ENABLE;
+    m_motorControlHeader.StdId = generateCanID(m_motorID, TX_FLAG, CMD_ENABLE);
+    m_motorControlHeader.DLC = 0;
+}
+
+void MotorJ60::constructRTR(uint8_t cmdID)
+{
+    m_motorControlHeader.StdId = generateCanID(m_motorID, TX_FLAG, cmdID);
+    m_motorControlHeader.DLC = 0;
+    m_motorControlHeader.RTR = CAN_RTR_REMOTE;
+    m_mo
+    m_sendingCmdIndex = cmdID;
+}
+
+
+void MotorJ60::disable()
+{
+    m_sendingCmdIndex = CMD_DISABLE;
+    m_motorControlHeader.StdId = generateCanID(m_motorID, TX_FLAG, CMD_ENABLE);
+    m_motorControlHeader.DLC = 0;
+}
+
+
+void MotorJ60::setControlHeader(uint8_t cmdID, uint8_t dlc)
+{
+   m_motorControlHeader.StdId = generateCanID(m_motorID, TX_FLAG, cmdID);
+   m_motorControlHeader.DLC = dlc;
+   m_sendingCmdIndex = CMD_CONTROL;
+}
+
+void MotorJ60::clearError()
+{
+    m_state = DISABLED;
+    m_error = {false, false, false, false, false, 0};
+}
+
+void MotorJ60::setZeroPosition()
+{
+    m_zeroCmdTxCount = 10;
+}
+
+void MotorJ60::setControlParams(fp32 p, fp32 v, fp32 t, fp32 kp, fp32 kd)
+{
+    m_cmdP = p;
+    m_cmdV = v;
+    m_cmdT = t;
+    m_cmdKp = kp;
+    m_cmdKd = kd;
+}
+
+void MotorJ60::convertControllerOutputToMotorControlData()
+{
+
+    // 失能状态：持续发送使能命令
+    if (m_state != ENABLED) {
+        m_motorControlHeader.StdId = (CMD_ENABLE << 5) | m_motorID;
+        m_motorControlHeader.DLC   = 0;
+        m_sendingCmdIndex = CMD_ENABLE;
+        return;
+    }
+
+    // 控制帧：ID = (CMD_CONTROL << 5) | JointID，DLC=8
+    m_motorControlHeader.StdId = (CMD_CONTROL << 5) | m_motorID;
+    m_motorControlHeader.DLC   = 8;
+    m_sendingCmdIndex = CMD_CONTROL;
+
+    // 限幅
+    fp32 p = fmaxf(fminf(m_cmdP, P_MAX), P_MIN);
+    fp32 v = fmaxf(fminf(m_cmdV, V_MAX), V_MIN);
+    fp32 t = fmaxf(fminf(m_cmdT, T_MAX), T_MIN);
+    fp32 kp = fmaxf(fminf(m_cmdKp, KP_MAX), KP_MIN);
+    fp32 kd = fmaxf(fminf(m_cmdKd, KD_MAX), KD_MIN);
+
+    // J60 协议（小端）：
+    // Bit0~15:  角度   16bit [-40,40]rad  → [0,65535]
+    // Bit16~29: 角速度 14bit [-40,40]rad/s → [0,16383]
+    // Bit30~39: Kp     10bit [0,1023]     → [0,1023]
+    // Bit40~47: Kd     8bit  [0.5,1.0]    → [0,255]
+    // Bit48~63: 扭矩   16bit [-40,40]Nm   → [0,65535]
+    uint16_t p_int  = (uint16_t)(((p - P_MIN) / (P_MAX - P_MIN)) * 65535.0f + 0.5f);
+    uint16_t v_int  = (uint16_t)(((v - V_MIN) / (V_MAX - V_MIN)) * 16383.0f + 0.5f);
+    uint16_t kp_int = (uint16_t)(kp + 0.5f); // 直接映射 [0,1023]
+    uint8_t  kd_int = (uint8_t)(((kd - KD_MIN) / (KD_MAX - KD_MIN)) * 255.0f + 0.5f);
+    uint16_t t_int  = (uint16_t)(((t - T_MIN) / (T_MAX - T_MIN)) * 65535.0f + 0.5f);
+
+    // 小端打包
+    // Byte0 = angle[7:0], Byte1 = angle[15:8]
+    // Byte2 = velocity[7:0], Byte3 = kp[1:0]<<6 | velocity[13:8]
+    // Byte4 = kp[9:2], Byte5 = kd[7:0]
+    // Byte6 = torque[7:0], Byte7 = torque[15:8]
+
+    setControlHeader(CMD_CONTROL, 0);
+
+    // m_motorControlData[0] = p_int & 0xFF;
+    // m_motorControlData[1] = (p_int >> 8) & 0xFF;
+    // m_motorControlData[2] = v_int & 0xFF;
+    // m_motorControlData[3] = ((kp_int & 0x03) << 6) | ((v_int >> 8) & 0x3F);
+    // m_motorControlData[4] = (kp_int >> 2) & 0xFF;
+    // m_motorControlData[5] = kd_int;
+    // m_motorControlData[6] = t_int & 0xFF;
+    // m_motorControlData[7] = (t_int >> 8) & 0xFF;
+    m_motorControlData[7] = (uint8_t)(900);
+}
+
+bool MotorJ60::decodeCanRxMessage(const can_rx_message_t &rxMessage)
+{
+    // 检查低4位是否为 m_motorID + 0x10
+    uint16_t rxId = rxMessage.header.StdId;
+    uint8_t rxJointPart = rxId & 0x0F;  // 取低4位
+    if (rxJointPart != (m_jointID + 0x10)) {return false;} // 不是本电机的反馈
+    
+    uint8_t cmdIndex = (rxId >> 5) & 0x3F; // 取命令索引
+    
+    // 使能/失能响应 (DLC=1)
+    if ((cmdIndex == CMD_ENABLE || cmdIndex == CMD_DISABLE) && rxMessage.header.DLC == 1) {
+        bool success = (rxMessage.data[0] == 0);
+        if (cmdIndex == CMD_ENABLE && success) {
+            m_state = ENABLED;
+        } else if (cmdIndex == CMD_DISABLE && success) {
+            m_state = DISABLED;
+        }
+        return true;
+    }
+    
+    // 控制响应 (DLC=8) - 包含位置/速度/扭矩/温度
+    if (cmdIndex == CMD_CONTROL && rxMessage.header.DLC == 8) {
+
+    const uint8_t *data = rxMessage.data;
+
+    // 20bit 角度：Byte0~Byte2 高位在前
+    uint32_t rawAngle = ((uint32_t)data[0] << 12) | ((uint32_t)data[1] << 4) | ((data[2] & 0xF0) >> 4);
+    // 20bit 角速度：Byte2 低4bit + Byte3 + Byte4
+    uint32_t rawVelocity = ((uint32_t)(data[2] & 0x0F) << 16) | ((uint32_t)data[3] << 8) | data[4];
+    // 16bit 扭矩：Byte5 + Byte6
+    uint32_t rawTorque = ((uint32_t)data[5] << 8) | data[6];
+
+    auto map20 = [](uint32_t raw, fp32 min, fp32 max) -> fp32 {
+        const fp32 scale = (fp32)raw / 1048575.0f; // 2^20 - 1
+        return min + (max - min) * scale;
+    };
+    auto map16 = [](uint32_t raw, fp32 min, fp32 max) -> fp32 {
+        const fp32 scale = (fp32)raw / 65535.0f;
+        return min + (max - min) * scale;
+    };
+
+    m_currentAngle = map20(rawAngle, P_MIN, P_MAX);
+    m_currentAngularVelocity = map20(rawVelocity, V_MIN, V_MAX);
+    fp32 torque = map16(rawTorque, T_MIN, T_MAX);
+    m_currentTorqueCurrent = (int16_t)torque;
+
+    const bool isMotorTemp = (data[7] & 0x80u) != 0;
+    const uint8_t rawTemp  = data[7] & 0x7Fu;
+    fp32 temperature = -20.0f + (220.0f / 127.0f) * (fp32)rawTemp; // [-20, 200]
+    m_temperature = (int8_t)temperature;
+    (void)isMotorTemp; // 可根据需求扩展到单独字段
+
+        m_error.rawErrorCode = 0;
+        m_error.underVoltage = false;
+        m_error.overVoltage = false;
+        m_error.overCurrent = false;
+        m_error.motorOverTemp = false;
+        m_error.driverOverTemp = false;
+        return true;
+    }
+    
+    // 清错响应 (DLC=1)
+    if (cmdIndex == CMD_CLEAR_ERROR && rxMessage.header.DLC == 1) {
+        if (rxMessage.data[0] == 0) {
+            m_error = {false, false, false, false, false, 0};
+            m_state = DISABLED;
+        }
+        return true;
+    }
+    
+    // 状态码响应 (DLC=2)
+    if (cmdIndex == CMD_GET_STATUS && rxMessage.header.DLC == 2) {
+        uint16_t status = rxMessage.data[0] | ((uint16_t)rxMessage.data[1] << 8);
+        m_error.overVoltage = (status & 0x01) != 0;
+        m_error.underVoltage = (status & 0x02) != 0;
+        m_error.overCurrent = (status & 0x04) != 0;
+        m_error.motorOverTemp = (status & 0x08) != 0;
+        m_error.driverOverTemp = (status & 0x10) != 0;
+        m_error.rawErrorCode = (uint8_t)(status & 0xFF);
+        if (status != 0) m_state = ERROR;
+        return true;
+    }
+    
+    return false;
 }

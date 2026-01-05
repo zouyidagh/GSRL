@@ -4,35 +4,35 @@
         {
             "label": "build",
             "type": "shell",
-            "command": "${command:eide.project.build}",
+            "command": "cmake --build build/Debug",
             "group": "build",
-            "problemMatcher": []
+            "problemMatcher": "$gcc"
         },
         {
             "label": "flash",
             "type": "shell",
-            "command": "${command:eide.project.uploadToDevice}",
+            "command": "& 'C:\\Users\\chuqi\\.eide\\tools\\openocd_7a1adfbec_mingw32\\bin\\openocd.exe' -f interface/stlink.cfg -f target/stm32f4x.cfg -c 'program build/Debug/GMStdRobotLib.elf verify reset exit'",
             "group": "build",
             "problemMatcher": []
         },
         {
             "label": "build and flash",
             "type": "shell",
-            "command": "${command:eide.project.buildAndFlash}",
+            "command": "cmake --build build/Debug ; if ($?) { & 'C:\\Users\\chuqi\\.eide\\tools\\openocd_7a1adfbec_mingw32\\bin\\openocd.exe' -f interface/stlink.cfg -f target/stm32f4x.cfg -c 'program build/Debug/GMStdRobotLib.elf verify reset exit' }",
             "group": "build",
             "problemMatcher": []
         },
         {
             "label": "rebuild",
             "type": "shell",
-            "command": "${command:eide.project.rebuild}",
+            "command": "cmake --build build/Debug --clean-first",
             "group": "build",
-            "problemMatcher": []
+            "problemMatcher": "$gcc"
         },
         {
             "label": "clean",
             "type": "shell",
-            "command": "${command:eide.project.clean}",
+            "command": "cmake --build build/Debug --target clean",
             "group": "build",
             "problemMatcher": []
         }
