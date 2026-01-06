@@ -1,7 +1,15 @@
 # 裁判系统驱动开发文档 (Referee System Driver Docs)
 
+作者：张楚清
+版本：v1.1.0  
+最后更新日期：2026-1-6
+
+## 版本信息（Version Info）
+本次更新同步官方协议 V1.1.0，新增对 雷达无线链路（CmdID 0x0A01~0x0A06） 的解析支持，并对文档结构进行了优化。
+👉 详细更新日志见文末《附录 A：更新日志》。
+
 ## 1. 概述
-本驱动用于解析 RoboMaster 裁判系统串口协议（V1.6.1），支持数据接收、校验、解包及数据结构化存储。
+本驱动用于解析 RoboMaster 裁判系统串口协议（V1.1.0），支持数据接收、校验、解包及数据结构化存储。
 
 *   **适用硬件**: STM32F407 (或其他支持 UART 的 MCU)
 *   **通信接口**: USART6 (RX: PG9, TX: PG14)
@@ -9,7 +17,7 @@
 *   **接收方式**: DMA + 空闲中断 (Idle Line Detection)
 
 ## 2. 协议说明
-遵循 RoboMaster 串口协议 V1.6.1 标准。
+遵循 RoboMaster 串口协议 V1.1.0 标准。
 
 ### 2.1 数据帧结构
 | SOF (1B) | DataLength (2B) | Seq (1B) | CRC8 (1B) | CmdID (2B) | Data (nB) | CRC16 (2B) |
@@ -81,9 +89,31 @@ if (info.hasGameStatus) {
 | **0x0208** | 弹丸余量 | `ProjectileAllowance` | 剩余发弹量 |
 | **0x0303** | 小地图命令 | `MapCommand` | 选手端点击坐标 |
 | **0x0304** | 键鼠数据 | `RemoteControl` | **仅图传链路有效** |
+| **0x0A01** | 敌方机器人位置坐标 | `RadarEnemyPos` | 10Hz,信号发射源→雷达 |
+| **0x0A02** | 敌方机器人血量信息 | `RadarEnemyHP` | 同上 |
+| **0x0A03** | 敌方机器人剩余发弹量 | `RadarEnemyAmmo` | 同上 |
+| **0x0A04** | 敌方队伍宏观状态 | `RadarTeamStatus` | 同上 |
+| **0x0A05** | 敌方机器人增益效果 | `RadarEnemyBuff` | 同上 |
+| **0x0A06** | 敌方干扰波密钥 | `RadarJammerKey` | 同上 |
 
 ## 5. 常见问题排查
 
 1.  **完全无数据**: 检查 `board_config.h` 是否定义 `USE_USART6`，检查 RX/TX 线序。
 2.  **校验错误 (CRC Fail)**: 确认 `dvc_referee.cpp` 中 `CRC16_INIT` 为 `0x0000`。
-3.  **长度错误 (Len Mismatch)**: 确认 `dvc_referee.hpp` 中的结构体定义是否与 V1.6.1 协议一致。
+3.  **长度错误 (Len Mismatch)**: 确认 `dvc_referee.hpp` 中的结构体定义是否与 V1.1.0 协议一致。
+
+
+## 更新日志（Changelog）
+
+### v1.1.0（2026-01-06）
+**新增**
+- 新增对裁判系统 *雷达无线链路* 的解析支持，包含 CmdID `0x0A01` ~ `0x0A06`。
+- 新增雷达数据结构体与对应解析流程。
+
+**文档**
+- 文档版本号同步至官方协议 V1.1.0。
+- 补充雷达链路说明，完善协议字段解释。
+- 优化章节结构与排版。
+
+**兼容性**
+- 保持与原有常规链路、图传链路接口兼容，无破坏性变更。

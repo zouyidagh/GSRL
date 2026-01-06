@@ -354,6 +354,56 @@ void RefereeParser::dispatchCmd(uint16_t cmd_id, const uint8_t* data, uint16_t l
         }
         break;
 
+    // -------- 雷达无线链路数据 --------
+    // [RM2026 V1.1.0] 新增命令码：雷达无线链路
+
+    case 0x0A01: // 敌方位置
+        if (len == sizeof(RadarEnemyPos))
+        {
+            std::memcpy(&info_.radarEnemyPos, data, sizeof(RadarEnemyPos));
+            info_.hasRadarEnemyPos = true;
+        }
+        break;
+
+    case 0x0A02: // 敌方血量
+        if (len == sizeof(RadarEnemyHP))
+        {
+            std::memcpy(&info_.radarEnemyHP, data, sizeof(RadarEnemyHP));
+            info_.hasRadarEnemyHP = true;
+        }
+        break;
+    case 0x0A03: // 敌方发弹量
+        if (len == sizeof(RadarEnemyAmmo))
+        {
+            std::memcpy(&info_.radarEnemyAmmo, data, sizeof(RadarEnemyAmmo));
+            info_.hasRadarEnemyAmmo = true;
+        }
+        break;
+
+    case 0x0A04: // 敌方队伍状态
+        if (len == sizeof(RadarTeamStatus))
+        {
+            std::memcpy(&info_.radarTeamStatus, data, sizeof(RadarTeamStatus));
+            info_.hasRadarTeamStatus = true;
+        }
+        break;
+
+    case 0x0A05: // 敌方增益
+        if (len == sizeof(RadarEnemyBuff))
+        {
+            std::memcpy(&info_.radarEnemyBuff, data, sizeof(RadarEnemyBuff));
+            info_.hasRadarEnemyBuff = true;
+        }
+        break;
+
+    case 0x0A06: // 干扰波密钥
+        if (len == sizeof(RadarJammerKey))
+        {
+            std::memcpy(&info_.radarJammerKey, data, sizeof(RadarJammerKey));
+            info_.hasRadarJammerKey = true;
+        }
+        break;
+
     default:
         // 其它 cmd_id 暂不处理，需要时再加
         break;

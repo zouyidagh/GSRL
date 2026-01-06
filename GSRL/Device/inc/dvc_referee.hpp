@@ -184,7 +184,7 @@ struct CustomInfo
     uint8_t  user_data[30]; // UTF-16 原始字节
 };
 
-// 0x0304 键鼠数据（图传链路）
+//0x0304 键鼠数据（图传链路）
 struct RemoteControl
 {
     int16_t  mouse_x;
@@ -194,6 +194,50 @@ struct RemoteControl
     int8_t   right_button_down;
     uint16_t keyboard_value;
     uint16_t reserved;
+};
+
+// ----------[RM2026 V1.1.0] 新增：雷达无线链路数据结构---------
+
+// 0x0A01 敌方机器人位置坐标
+struct RadarEnemyPos
+{
+    float x[7];  // 1~5号步兵 + 工程 + 哨兵
+    float y[7];
+};
+
+// 0x0A02 敌方机器人血量信息
+struct RadarEnemyHP
+{
+    uint16_t hp[7];
+};
+
+// 0x0A03 敌方机器人剩余发弹量
+struct RadarEnemyAmmo
+{
+    uint16_t ammo_17mm[7];
+    uint16_t ammo_42mm[7];
+};
+
+// 0x0A04 敌方队伍宏观状态
+struct RadarTeamStatus
+{
+    uint8_t team_level;
+    uint16_t total_HP;
+    uint16_t total_ammo;
+};
+
+// 0x0A05 敌方机器人增益效果
+struct RadarEnemyBuff
+{
+    uint8_t recovery_buff[7];
+    uint8_t defence_buff[7];
+    uint8_t attack_buff[7];
+};
+
+// 0x0A06 敌方干扰波密钥
+struct RadarJammerKey
+{
+    uint8_t key[6];
 };
 
 #pragma pack(pop)
@@ -233,6 +277,20 @@ struct RefereeInfo
     bool hasRobotPos      = false;
     bool hasBuff          = false;
     bool hasRemoteControl = false;
+
+    // 雷达无线链路数据
+    RadarEnemyPos     radarEnemyPos{};
+    RadarEnemyHP      radarEnemyHP{};
+    RadarEnemyAmmo    radarEnemyAmmo{};
+    RadarTeamStatus   radarTeamStatus{};
+    RadarEnemyBuff    radarEnemyBuff{};
+    RadarJammerKey    radarJammerKey{};
+    bool hasRadarEnemyPos     = false;
+    bool hasRadarEnemyHP      = false;
+    bool hasRadarEnemyAmmo    = false;
+    bool hasRadarTeamStatus   = false;
+    bool hasRadarEnemyBuff    = false;
+    bool hasRadarJammerKey    = false;
 };
 
 // 链路类型：常规链路 or 图传链路
