@@ -207,8 +207,10 @@ public:
         uint8_t rawErrorCode;
     };
 
-     static uint16_t generateCanID(uint8_t jointID, uint8_t txRxFlag, uint8_t cmdID){
-        uint16_t temp = jointID | (cmdID << 5);
+    // DeepJ60 ID Gen: ID = (CmdID << 5) | MotorID
+    // 移除之前的 Flag bit 逻辑
+     static uint16_t generateCanID(uint8_t jointID, uint8_t cmdID){
+        uint16_t temp = (jointID & 0x1F) | ((cmdID & 0x3F) << 5);
         return temp;
     }
     MotorJ60(uint8_t motorID, Controller *controller);
@@ -248,9 +250,6 @@ private:
     static constexpr uint8_t CMD_GET_STATUS = 23;
 
 
-    static constexpr uint8_t TX_FLAG = 0;
-    static constexpr uint8_t RX_FLAG = 1;
-
     // 当前发送的命令索引
     uint8_t m_sendingCmdIndex;
 
@@ -264,7 +263,7 @@ private:
     const fp32 V_MIN = -40.0f, V_MAX = 40.0f;
     const fp32 T_MIN = -40.0f, T_MAX = 40.0f;
     const fp32 KP_MIN = 0.0f, KP_MAX = 1023.0f;
-    const fp32 KD_MIN = 0.5f, KD_MAX = 1.0f; // 协议规定范围
+    const fp32 KD_MIN = 0.0f, KD_MAX = 51.0f; // 协议规定范围
 
     void setControlHeader(uint8_t cmdID, uint8_t dlc);
    

@@ -705,49 +705,48 @@ void MotorDM4310::setMotorZeroPosition()
  ******************************************************************************/
 
 MotorJ60::MotorJ60(uint8_t jointID, Controller *controller)
-    : Motor(generateCanID(jointID, TX_FLAG, CMD_ENABLE), 
-    generateCanID(jointID, RX_FLAG, CMD_ENABLE), controller),
+    : Motor(generateCanID(jointID, CMD_ENABLE), 
+    generateCanID(jointID, CMD_ENABLE), controller),
     m_jointID(jointID),
     m_state(DISABLED),
     m_error({false, false, false, false, false, 0}),
     m_motorID(jointID),
     m_sendingCmdIndex(CMD_CONTROL),
     m_cmdP(0.0f), m_cmdV(0.0f), m_cmdT(0.0f), m_cmdKp(0.0f), m_cmdKd(0.0f),
-    m_zeroCmdTxCount(0)
+    m_enableCmdTxCount(0), m_zeroCmdTxCount(0)
 {
-    // J60 CAN ID 动态变化：发送 ID = (CmdIndex << 5) | JointID
-    //                    返回 ID = (CmdIndex << 5) | (JointID + 0x10)
+    // J60 CAN ID: (CmdIndex << 5) | JointID
 }
 
 void MotorJ60::enable()
 {
+    // DeepJ60 uses SetRefCodeCmd(CMD_ENABLE) logic
     m_enableCmdTxCount = 10;
     m_sendingCmdIndex = CMD_ENABLE;
-    m_motorControlHeader.StdId = generateCanID(m_motorID, TX_FLAG, CMD_ENABLE);
+    m_motorControlHeader.StdId = generateCanID(m_motorID, CMD_ENABLE);
     m_motorControlHeader.DLC = 0;
 }
 
 void MotorJ60::constructRTR(uint8_t cmdID)
 {
-    m_motorControlHeader.StdId = generateCanID(m_motorID, TX_FLAG, cmdID);
+    m_motorControlHeader.StdId = generateCanID(m_motorID, cmdID);
     m_motorControlHeader.DLC = 0;
     m_motorControlHeader.RTR = CAN_RTR_REMOTE;
-    m_mo
     m_sendingCmdIndex = cmdID;
 }
 
-
 void MotorJ60::disable()
 {
-    m_sendingCmdIndex = CMD_DISABLE;
-    m_motorControlHeader.StdId = generateCanID(m_motorID, TX_FLAG, CMD_ENABLE);
+    m_state = DISABLED;
+    // Protocol requires sending CMD_DISABLE (1)
+    m_motorControlHeader.StdId = generateCanID(m_motorID, CMD_DISABLE);
     m_motorControlHeader.DLC = 0;
+    m_sendingCmdIndex = CMD_DISABLE;
 }
-
 
 void MotorJ60::setControlHeader(uint8_t cmdID, uint8_t dlc)
 {
-   m_motorControlHeader.StdId = generateCanID(m_motorID, TX_FLAG, cmdID);
+   m_motorControlHeader.StdId = generateCanID(m_motorID, cmdID);
    m_motorControlHeader.DLC = dlc;
    m_sendingCmdIndex = CMD_CONTROL;
 }
@@ -755,6 +754,10 @@ void MotorJ60::setControlHeader(uint8_t cmdID, uint8_t dlc)
 void MotorJ60::clearError()
 {
     m_state = DISABLED;
+    // Protocol requires sending CMD_CLEAR_ERROR (17)
+    m_motorControlHeader.StdId = generateCanID(m_motorID, CMD_CLEAR_ERROR);
+    m_motorControlHeader.DLC = 0;
+    m_sendingCmdIndex = CMD_CLEAR_ERROR;
     m_error = {false, false, false, false, false, 0};
 }
 
@@ -772,68 +775,91 @@ void MotorJ60::setControlParams(fp32 p, fp32 v, fp32 t, fp32 kp, fp32 kd)
     m_cmdKd = kd;
 }
 
+static uint32_t RealDataToCanData(float RealData, float MinRealData, float MaxRealData, uint32_t DataBitNum) {
+    return (uint32_t)(((1 << DataBitNum) - 1) * (RealData - MinRealData) / (MaxRealData - MinRealData));
+}
+
+static float CanDataToRealData(uint32_t CanData, float MinRealData, float MaxRealData, uint32_t DataBitNum) {
+    return (MinRealData + (MaxRealData - MinRealData) * CanData / ((1 << DataBitNum) - 1));
+}
+
 void MotorJ60::convertControllerOutputToMotorControlData()
 {
+    const float POSITION_MAX = 40.0f;
+    const float POSITION_MIN = -40.0f;
+    const float VELOCITY_MAX = 40.0f;
+    const float VELOCITY_MIN = -40.0f;
+    const float KP_MAX = 1023.0f;
+    const float KP_MIN = 0.0f;
+    const float KD_MAX = 51.0f;
+    const float KD_MIN = 0.0f;
+    const float TORQUE_MAX = 40.0f;
+    const float TORQUE_MIN = -40.0f;
 
-    // 失能状态：持续发送使能命令
-    if (m_state != ENABLED) {
-        m_motorControlHeader.StdId = (CMD_ENABLE << 5) | m_motorID;
-        m_motorControlHeader.DLC   = 0;
+    // 处理特殊命令的发送逻辑
+    if (m_enableCmdTxCount > 0) {
         m_sendingCmdIndex = CMD_ENABLE;
+        m_motorControlHeader.StdId = generateCanID(m_motorID, CMD_ENABLE);
+        m_motorControlHeader.DLC = 0;
+        m_enableCmdTxCount--;
         return;
     }
 
-    // 控制帧：ID = (CMD_CONTROL << 5) | JointID，DLC=8
-    m_motorControlHeader.StdId = (CMD_CONTROL << 5) | m_motorID;
-    m_motorControlHeader.DLC   = 8;
+    if (m_state != ENABLED) {
+        // DeepJ60 open source logic does not block sending control commands based on state.
+        // It simply sends whatever 'MotorCommand' is set to.
+        // We will remove this blocking logic to perfectly adapt.
+        // If the user wants to enable, they call enable().
+        // If they want to send control, they setControlParams().
+        // However, we still need to send Enable frame if we are in the 'enabling' phase (handled above by counter).
+        // If we are just 'Disabled' and no counter, maybe we should respect the class state?
+        // But for "Perfect Adaptation", we follow the Open Source "stateless" send approach
+        // or allow sending control if the user explicitly requested it (setControlParams + convert called).
+        
+        // m_motorControlHeader.StdId = generateCanID(m_motorID, CMD_ENABLE);
+        // m_motorControlHeader.DLC = 0;
+        // m_sendingCmdIndex = CMD_ENABLE;
+        // return;
+    }
+
+    setControlHeader(CMD_CONTROL, 8);
     m_sendingCmdIndex = CMD_CONTROL;
 
     // 限幅
-    fp32 p = fmaxf(fminf(m_cmdP, P_MAX), P_MIN);
-    fp32 v = fmaxf(fminf(m_cmdV, V_MAX), V_MIN);
-    fp32 t = fmaxf(fminf(m_cmdT, T_MAX), T_MIN);
-    fp32 kp = fmaxf(fminf(m_cmdKp, KP_MAX), KP_MIN);
-    fp32 kd = fmaxf(fminf(m_cmdKd, KD_MAX), KD_MIN);
+    float p_sat = fmaxf(fminf(m_cmdP, POSITION_MAX), POSITION_MIN);
+    float v_sat = fmaxf(fminf(m_cmdV, VELOCITY_MAX), VELOCITY_MIN);
+    float t_sat = fmaxf(fminf(m_cmdT, TORQUE_MAX), TORQUE_MIN);
+    float kp_sat = fmaxf(fminf(m_cmdKp, KP_MAX), KP_MIN);
+    float kd_sat = fmaxf(fminf(m_cmdKd, KD_MAX), KD_MIN);
 
-    // J60 协议（小端）：
-    // Bit0~15:  角度   16bit [-40,40]rad  → [0,65535]
-    // Bit16~29: 角速度 14bit [-40,40]rad/s → [0,16383]
-    // Bit30~39: Kp     10bit [0,1023]     → [0,1023]
-    // Bit40~47: Kd     8bit  [0.5,1.0]    → [0,255]
-    // Bit48~63: 扭矩   16bit [-40,40]Nm   → [0,65535]
-    uint16_t p_int  = (uint16_t)(((p - P_MIN) / (P_MAX - P_MIN)) * 65535.0f + 0.5f);
-    uint16_t v_int  = (uint16_t)(((v - V_MIN) / (V_MAX - V_MIN)) * 16383.0f + 0.5f);
-    uint16_t kp_int = (uint16_t)(kp + 0.5f); // 直接映射 [0,1023]
-    uint8_t  kd_int = (uint8_t)(((kd - KD_MIN) / (KD_MAX - KD_MIN)) * 255.0f + 0.5f);
-    uint16_t t_int  = (uint16_t)(((t - T_MIN) / (T_MAX - T_MIN)) * 65535.0f + 0.5f);
+    // 转换
+    uint32_t p_int = RealDataToCanData(p_sat, POSITION_MIN, POSITION_MAX, 16);
+    uint32_t v_int = RealDataToCanData(v_sat, VELOCITY_MIN, VELOCITY_MAX, 14);
+    uint32_t kp_int = RealDataToCanData(kp_sat, KP_MIN, KP_MAX, 10);
+    uint32_t kd_int = RealDataToCanData(kd_sat, KD_MIN, KD_MAX, 8);
+    uint32_t t_int = RealDataToCanData(t_sat, TORQUE_MIN, TORQUE_MAX, 16);
 
-    // 小端打包
-    // Byte0 = angle[7:0], Byte1 = angle[15:8]
-    // Byte2 = velocity[7:0], Byte3 = kp[1:0]<<6 | velocity[13:8]
-    // Byte4 = kp[9:2], Byte5 = kd[7:0]
-    // Byte6 = torque[7:0], Byte7 = torque[15:8]
-
-    setControlHeader(CMD_CONTROL, 0);
-
-    // m_motorControlData[0] = p_int & 0xFF;
-    // m_motorControlData[1] = (p_int >> 8) & 0xFF;
-    // m_motorControlData[2] = v_int & 0xFF;
-    // m_motorControlData[3] = ((kp_int & 0x03) << 6) | ((v_int >> 8) & 0x3F);
-    // m_motorControlData[4] = (kp_int >> 2) & 0xFF;
-    // m_motorControlData[5] = kd_int;
-    // m_motorControlData[6] = t_int & 0xFF;
-    // m_motorControlData[7] = (t_int >> 8) & 0xFF;
-    m_motorControlData[7] = (uint8_t)(900);
+    // DeepJ60 Packing
+    m_motorControlData[0] = p_int & 0xFF;
+    m_motorControlData[1] = (p_int >> 8) & 0xFF;
+    m_motorControlData[2] = v_int & 0xFF;
+    m_motorControlData[3] = ((v_int >> 8) & 0x3F) | ((kp_int & 0x03) << 6);
+    m_motorControlData[4] = (kp_int >> 2) & 0xFF;
+    m_motorControlData[5] = kd_int & 0xFF;
+    m_motorControlData[6] = t_int & 0xFF;
+    m_motorControlData[7] = (t_int >> 8) & 0xFF;
 }
 
 bool MotorJ60::decodeCanRxMessage(const can_rx_message_t &rxMessage)
 {
-    // 检查低4位是否为 m_motorID + 0x10
     uint16_t rxId = rxMessage.header.StdId;
-    uint8_t rxJointPart = rxId & 0x0F;  // 取低4位
-    if (rxJointPart != (m_jointID + 0x10)) {return false;} // 不是本电机的反馈
     
-    uint8_t cmdIndex = (rxId >> 5) & 0x3F; // 取命令索引
+    // Check ID logic (tighter check based on observation that replies are usually +0x10)
+    uint8_t rxJointPart = rxId & 0x1F; 
+    // Allow strict match or +0x10 match
+    if (rxJointPart != m_jointID && rxJointPart != (m_jointID | 0x10)) { return false; } 
+    
+    uint8_t cmdIndex = (rxId >> 5) & 0x3F;
     
     // 使能/失能响应 (DLC=1)
     if ((cmdIndex == CMD_ENABLE || cmdIndex == CMD_DISABLE) && rxMessage.header.DLC == 1) {
@@ -846,44 +872,40 @@ bool MotorJ60::decodeCanRxMessage(const can_rx_message_t &rxMessage)
         return true;
     }
     
-    // 控制响应 (DLC=8) - 包含位置/速度/扭矩/温度
+    // 控制响应 (DLC=8)
     if (cmdIndex == CMD_CONTROL && rxMessage.header.DLC == 8) {
+        
+        const uint8_t *d = rxMessage.data;
+        const float POSITION_MAX = 40.0f, POSITION_MIN = -40.0f;
+        const float VELOCITY_MAX = 40.0f, VELOCITY_MIN = -40.0f;
+        const float TORQUE_MAX = 40.0f, TORQUE_MIN = -40.0f;
+        const float MOTOR_TEMPERATURE_MAX = 200.0f, MOTOR_TEMPERATURE_MIN = -20.0f;
 
-    const uint8_t *data = rxMessage.data;
+        // DeepJ60 Unpacking from ReceiveCanData
+        // Position: 20 bits
+        uint32_t CurrentPosition = d[0] | ((uint32_t)d[1] << 8) | ((uint32_t)(d[2] & 0x0F) << 16);
+        
+        // Velocity: 20 bits. 
+        // Replicating Open Source Logic exactly including the mask behavior
+        uint32_t CurrentVelocity = ((d[2] >> 4) & 0x0F) | ((uint32_t)d[3] << 4) | (((uint32_t)d[4] << 12) & 0xFF00);
 
-    // 20bit 角度：Byte0~Byte2 高位在前
-    uint32_t rawAngle = ((uint32_t)data[0] << 12) | ((uint32_t)data[1] << 4) | ((data[2] & 0xF0) >> 4);
-    // 20bit 角速度：Byte2 低4bit + Byte3 + Byte4
-    uint32_t rawVelocity = ((uint32_t)(data[2] & 0x0F) << 16) | ((uint32_t)data[3] << 8) | data[4];
-    // 16bit 扭矩：Byte5 + Byte6
-    uint32_t rawTorque = ((uint32_t)data[5] << 8) | data[6];
+        m_currentAngle = CanDataToRealData(CurrentPosition, POSITION_MIN, POSITION_MAX, 20);
+        m_currentAngularVelocity = CanDataToRealData(CurrentVelocity, VELOCITY_MIN, VELOCITY_MAX, 20);
+        
+        // Torque 16 bits
+        uint32_t CurrentTorque = d[5] | ((uint32_t)d[6] << 8);
+        m_currentTorqueCurrent = (fp32)CanDataToRealData(CurrentTorque, TORQUE_MIN, TORQUE_MAX, 16);
 
-    auto map20 = [](uint32_t raw, fp32 min, fp32 max) -> fp32 {
-        const fp32 scale = (fp32)raw / 1048575.0f; // 2^20 - 1
-        return min + (max - min) * scale;
-    };
-    auto map16 = [](uint32_t raw, fp32 min, fp32 max) -> fp32 {
-        const fp32 scale = (fp32)raw / 65535.0f;
-        return min + (max - min) * scale;
-    };
+        // Temp
+        // Open Source: Flag = LSB, Temp = Bits 1-7
+        uint32_t TemperatureFlag = d[7] & 0x01;
+        uint32_t CurrentTemperature = (d[7] >> 1) & 0x7F;
 
-    m_currentAngle = map20(rawAngle, P_MIN, P_MAX);
-    m_currentAngularVelocity = map20(rawVelocity, V_MIN, V_MAX);
-    fp32 torque = map16(rawTorque, T_MIN, T_MAX);
-    m_currentTorqueCurrent = (int16_t)torque;
-
-    const bool isMotorTemp = (data[7] & 0x80u) != 0;
-    const uint8_t rawTemp  = data[7] & 0x7Fu;
-    fp32 temperature = -20.0f + (220.0f / 127.0f) * (fp32)rawTemp; // [-20, 200]
-    m_temperature = (int8_t)temperature;
-    (void)isMotorTemp; // 可根据需求扩展到单独字段
+        if (TemperatureFlag == 1) { // Motor Temp
+             m_temperature = (int8_t)CanDataToRealData(CurrentTemperature, MOTOR_TEMPERATURE_MIN, MOTOR_TEMPERATURE_MAX, 7);
+        }
 
         m_error.rawErrorCode = 0;
-        m_error.underVoltage = false;
-        m_error.overVoltage = false;
-        m_error.overCurrent = false;
-        m_error.motorOverTemp = false;
-        m_error.driverOverTemp = false;
         return true;
     }
     
@@ -893,19 +915,6 @@ bool MotorJ60::decodeCanRxMessage(const can_rx_message_t &rxMessage)
             m_error = {false, false, false, false, false, 0};
             m_state = DISABLED;
         }
-        return true;
-    }
-    
-    // 状态码响应 (DLC=2)
-    if (cmdIndex == CMD_GET_STATUS && rxMessage.header.DLC == 2) {
-        uint16_t status = rxMessage.data[0] | ((uint16_t)rxMessage.data[1] << 8);
-        m_error.overVoltage = (status & 0x01) != 0;
-        m_error.underVoltage = (status & 0x02) != 0;
-        m_error.overCurrent = (status & 0x04) != 0;
-        m_error.motorOverTemp = (status & 0x08) != 0;
-        m_error.driverOverTemp = (status & 0x10) != 0;
-        m_error.rawErrorCode = (uint8_t)(status & 0xFF);
-        if (status != 0) m_state = ERROR;
         return true;
     }
     
