@@ -43,23 +43,23 @@ protected:
     uint8_t m_motorFeedbackSequence;          // 电机反馈数据序号, 用于中断接收离线判断
     uint8_t m_motorLastFeedbackSequence;      // 上一次反馈数据序号
     // 当前状态
-    fp32 m_currentAngle;               // rad [0, 2PI)
-    fp32 m_lastAngle;                  // rad [0, 2PI)
-    fp32 m_currentAngularVelocity;     // rad/s
-    int16_t m_roundCount;              // 整圈数，用于计算小数圈数
-    fp32 m_zeroAngle;                  // 零位角度，用于计算小数圈数
-    fp32 m_currentRevolutions;         // 小数圈数 n*2pi(rad)
+    fp32 m_currentAngle;           // rad [0, 2PI)
+    fp32 m_lastAngle;              // rad [0, 2PI)
+    fp32 m_currentAngularVelocity; // rad/s
+    int16_t m_roundCount;          // 整圈数，用于计算小数圈数
+    fp32 m_zeroAngle;              // 零位角度，用于计算小数圈数
+    fp32 m_currentRevolutions;     // 小数圈数 n*2pi(rad)
     int16_t m_currentTorqueCurrent;
-    int8_t m_temperature;              // ℃
+    int8_t m_temperature; // ℃
     uint8_t m_motorFeedbackErrorCount;
     bool m_isMotorConnected;
     // 目标状态
-    fp32 m_targetAngle;                // rad [0, 2PI)
-    fp32 m_targetAngularVelocity;      // rad/s
-    fp32 m_targetRevolutions;          // 圈n*2pi(rad)
+    fp32 m_targetAngle;           // rad [0, 2PI)
+    fp32 m_targetAngularVelocity; // rad/s
+    fp32 m_targetRevolutions;     // 圈n*2pi(rad)
     int16_t m_targetTorqueCurrent;
     // 控制器
-    Controller *m_controller;          // 符合 Controller 接口的控制器
+    Controller *m_controller; // 符合 Controller 接口的控制器
     fp32 m_controllerOutput;
     bool m_controllerOutputPolarity;
     uint16_t m_encoderOffset;
@@ -67,8 +67,8 @@ protected:
 public:
     virtual ~Motor() = default;
     // 通信相关
-    uint32_t getMotorControlMessageID();
-    uint32_t getMotorFeedbackMessageID();
+    uint32_t getMotorControlMessageID() const;  // 发给电机的控制报文 ID
+    uint32_t getMotorFeedbackMessageID() const; // 电机回复的反馈报文 ID
     const CAN_TxHeaderTypeDef *getMotorControlHeader() const;
     const uint8_t *getMotorControlData();
     virtual bool decodeCanRxMessageFromQueue(const can_rx_message_t *rxMessage, uint8_t Size);
@@ -104,7 +104,7 @@ public:
 protected:
     Motor(uint32_t canControlID, uint32_t canFeedbackID, Controller *controller, uint16_t encoderOffset = 0);
     virtual bool decodeCanRxMessage(const can_rx_message_t &rxMessage) = 0;
-    virtual void convertControllerOutputToMotorControlData() = 0;
+    virtual void convertControllerOutputToMotorControlData()           = 0;
     fp32 updateCurrentRevolutions();
     inline void increaseMotorFeedbackErrorCount();
     inline void clearMotorFeedbackErrorCount();
@@ -123,10 +123,12 @@ protected:
 
 public:
     MotorGM6020(uint8_t dji6020MotorID, Controller *controller, uint16_t encoderOffset = 0);
-    void convertControllerOutputToMotorControlData() override;
-    bool decodeCanRxMessage(const can_rx_message_t &rxMessage) override;
     uint8_t getDjiMotorID() const;
     MotorGM6020 operator+(const MotorGM6020 &otherMotor) const;
+
+protected:
+    bool decodeCanRxMessage(const can_rx_message_t &rxMessage) override;
+    void convertControllerOutputToMotorControlData() override;
 };
 
 /**
@@ -136,10 +138,12 @@ public:
 class MotorM3508 : public MotorGM6020
 {
 protected:
-    uint8_t m_gearboxRatio; // 减速比倒数，用于换算电机转速、角速度，电机角度、圈数不受此值影响，默认为1即不换算
+    fp32 m_gearboxRatio; // 减速比倒数，用于换算电机转速、角速度，电机角度、圈数不受此值影响，默认为1即不换算
 
 public:
-    MotorM3508(uint8_t dji3508MotorID, Controller *controller, uint16_t encoderOffset = 0, uint8_t gearboxRatio = 1);
+    MotorM3508(uint8_t dji3508MotorID, Controller *controller, uint16_t encoderOffset = 0, fp32 gearboxRatio = 1.0f);
+
+protected:
     bool decodeCanRxMessage(const can_rx_message_t &rxMessage) override;
 };
 
@@ -154,17 +158,16 @@ public:
 class MotorDM4310 : public Motor
 {
 public:
-    enum DMMotorState : uint8_t
-    {
-        DISABLE = 0x00,
-        ENABLE = 0x01,
-        OVER_VOLTAGE = 0x08,
-        UNDER_VOLTAGE = 0x09,
-        OVER_CURRENT = 0x0A,
+    enum DMMotorState : uint8_t {
+        DISABLE                 = 0x00,
+        ENABLE                  = 0x01,
+        OVER_VOLTAGE            = 0x08,
+        UNDER_VOLTAGE           = 0x09,
+        OVER_CURRENT            = 0x0A,
         MOSFET_OVER_TEMPERATURE = 0x0B,
-        COLI_OVER_TEMPERATURE = 0x0C,
-        COMMUNICATION_LOST = 0x0D,
-        OVERLOAD = 0x0E
+        COLI_OVER_TEMPERATURE   = 0x0C,
+        COMMUNICATION_LOST      = 0x0D,
+        OVERLOAD                = 0x0E
     };
 
 protected:
@@ -178,6 +181,36 @@ protected:
 public:
     MotorDM4310(uint8_t dmControlID, uint8_t dmMasterID, fp32 pmax, fp32 vmax, fp32 tmax, Controller *controller);
     void convertControllerOutputToMotorControlData() override;
+};
+
+/**
+ * @brief 瓴控MG系列电机类
+ * @details 该类实现了Motor类的纯虚函数，用于控制瓴控MG系列电机
+ */
+class MotorLKMG : public Motor
+{
+protected:
+    uint8_t m_lkMotorID;
+    static constexpr uint16_t m_encoderResolution = 65535;
+    static constexpr int16_t m_openloopLimit      = 2048;
+    uint16_t m_encoderRaw;
+    fp32 m_gearboxRatio;     // 减速比
+    fp32 m_maxVelocity;      // 最大速度，单位rad/s
+    bool m_isMotorClockwise; // 是否顺时针旋转
+    bool m_isBraked;         // 是否刹车
+
+public:
+    MotorLKMG(uint8_t lkMotorID, Controller *controller, uint16_t encoderOffset = 0, fp32 gearboxRatio = 1.0f);
+    void hardwareAngularVelocityClosedloopControl();
+    void hardwareAngularVelocityClosedloopControl(fp32 targetAngularVelocity);
+    void hardwareAngleClosedloopControl();
+    void hardwareAngleClosedloopControl(fp32 targetAngle, fp32 maxVelocity, bool isMotorClockwise);
+    void hardwareRevolutionsClosedloopControl();
+    void hardwareRevolutionsClosedloopControl(fp32 targetAngle, fp32 maxVelocity);
+    void setBrake(bool isBraked);
+    uint8_t getMotorID() const { return m_lkMotorID; }
+
+protected:
     bool decodeCanRxMessage(const can_rx_message_t &rxMessage) override;
     void setMotorZeroPosition();
 };
