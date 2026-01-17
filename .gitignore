@@ -1,5 +1,10 @@
-# dot files
+# auto-generated files
+flash.cfg
+.lazy.lua
 /.vscode/launch.json
+/.vscode/settings.json
+
+# dot files
 /.settings
 /.eide/log
 /.eide.usr.ctx.json

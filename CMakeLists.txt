@@ -37,6 +37,9 @@ enable_language(C ASM)
 # Create an executable object type
 add_executable(${CMAKE_PROJECT_NAME})
 
+# Include auto-generation config script
+include(${CMAKE_SOURCE_DIR}/cmake/generate-config.cmake)
+
 # Add STM32CubeMX generated sources
 add_subdirectory(CubeMX_BSP/cmake/stm32cubemx)
 
