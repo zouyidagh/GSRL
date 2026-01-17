@@ -301,7 +301,7 @@ void ET08ARemoteControl::decodeRxData()
         m_isConnected = false;
         return;
     }
-    
+
     // 遥控器掉线时stopByte为0x0F
     m_isConnected = !(m_originalRxDataPointer->stopByte == 0x0F);
 
@@ -310,16 +310,18 @@ void ET08ARemoteControl::decodeRxData()
 
     parseET08AProtocol(m_originalRxDataPointer->data, m_protocolData);
 
-    m_rightStickX = (m_protocolData.rightStickX - 1024) / 660.0f;
-    m_rightStickY = (m_protocolData.rightStickY - 1024) / 660.0f;
-    m_leftStickX  = (m_protocolData.leftStickX - 1024) / 660.0f;
-    m_leftStickY  = (m_protocolData.leftStickY - 1024) / 660.0f;
-    m_knobLD      = (m_protocolData.knobLD - 1024) / 660.0f;
-    m_knobRD      = (m_protocolData.knobRD - 1024) / 660.0f;
-    m_trimmerT1   = (m_protocolData.trimmerT1 - 1024) / 660.0f;
-    m_trimmerT2   = (m_protocolData.trimmerT2 - 1024) / 660.0f;
-    m_trimmerT3   = (m_protocolData.trimmerT3 - 1024) / 660.0f;
-    m_trimmerT4   = (m_protocolData.trimmerT4 - 1024) / 660.0f;
+    // ET08A遥控器通道值范围是[353, 1694], 中点1024
+    // 为保证数值在[-1.0, 1.0]范围内且保证线性性, 取较大的下限偏移量671, 最终归一化数值范围是[-1.0, 0.9985]
+    m_rightStickX = (m_protocolData.rightStickX - 1024) / 671.0f;
+    m_rightStickY = (m_protocolData.rightStickY - 1024) / 671.0f;
+    m_leftStickX  = (m_protocolData.leftStickX - 1024) / 671.0f;
+    m_leftStickY  = (m_protocolData.leftStickY - 1024) / 671.0f;
+    m_knobLD      = (m_protocolData.knobLD - 1024) / 671.0f;
+    m_knobRD      = (m_protocolData.knobRD - 1024) / 671.0f;
+    m_trimmerT1   = (m_protocolData.trimmerT1 - 1024) / 671.0f;
+    m_trimmerT2   = (m_protocolData.trimmerT2 - 1024) / 671.0f;
+    m_trimmerT3   = (m_protocolData.trimmerT3 - 1024) / 671.0f;
+    m_trimmerT4   = (m_protocolData.trimmerT4 - 1024) / 671.0f;
 
     m_isDecodeCompleted = true;
 }
@@ -335,36 +337,105 @@ void ET08ARemoteControl::updateEvent()
     decodeRxData();
 
     m_lastSwitchSA = m_switchSA;
-    if (m_protocolData.switchSA < 1200) {
-        m_switchSA = SwitchStatus2Pos::SWITCH_UP;
-    } else {
-        m_switchSA = SwitchStatus2Pos::SWITCH_DOWN;
-    }
-    m_eventSA      = judgeSwitchEvent(m_switchSA, m_lastSwitchSA);
     m_lastSwitchSB = m_switchSB;
-    if (m_protocolData.switchSB < 1024) {
-        m_switchSB = SwitchStatus3Pos::SWITCH_UP;
-    } else if (m_protocolData.switchSB > 1024) {
-        m_switchSB = SwitchStatus3Pos::SWITCH_DOWN;
-    } else {
-        m_switchSB = SwitchStatus3Pos::SWITCH_MIDDLE;
+    if (m_config.switchSASB != ET08AChannelIndex::CH_NONE) { // SA和SB复用通道, SB微调
+        if (m_protocolData.switchSASB < 1024) {
+            m_switchSA = SwitchStatus2Pos::SWITCH_UP;
+            switch ((m_protocolData.switchSASB - 151) / 201) {
+                case 0:
+                    m_switchSB = SwitchStatus3Pos::SWITCH_UP;
+                    break;
+                case 1:
+                    m_switchSB = SwitchStatus3Pos::SWITCH_MIDDLE;
+                    break;
+                case 2:
+                    m_switchSB = SwitchStatus3Pos::SWITCH_DOWN;
+                    break;
+                default:
+                    break;
+            }
+        } else {
+            m_switchSA = SwitchStatus2Pos::SWITCH_DOWN;
+            switch ((m_protocolData.switchSASB - 1493) / 201) {
+                case 0:
+                    m_switchSB = SwitchStatus3Pos::SWITCH_UP;
+                    break;
+                case 1:
+                    m_switchSB = SwitchStatus3Pos::SWITCH_MIDDLE;
+                    break;
+                case 2:
+                    m_switchSB = SwitchStatus3Pos::SWITCH_DOWN;
+                    break;
+                default:
+                    break;
+            }
+        }
+    } else { // SA和SB使用独立通道
+        if (m_protocolData.switchSA < 1024) {
+            m_switchSA = SwitchStatus2Pos::SWITCH_UP;
+        } else {
+            m_switchSA = SwitchStatus2Pos::SWITCH_DOWN;
+        }
+        if (m_protocolData.switchSB < 1024) {
+            m_switchSB = SwitchStatus3Pos::SWITCH_UP;
+        } else if (m_protocolData.switchSB > 1024) {
+            m_switchSB = SwitchStatus3Pos::SWITCH_DOWN;
+        } else {
+            m_switchSB = SwitchStatus3Pos::SWITCH_MIDDLE;
+        }
     }
-    m_eventSB      = judgeSwitchEvent(m_switchSB, m_lastSwitchSB);
+    m_eventSA = judgeSwitchEvent(m_switchSA, m_lastSwitchSA);
+    m_eventSB = judgeSwitchEvent(m_switchSB, m_lastSwitchSB);
+
     m_lastSwitchSC = m_switchSC;
-    if (m_protocolData.switchSC < 1024) {
-        m_switchSC = SwitchStatus3Pos::SWITCH_UP;
-    } else if (m_protocolData.switchSC > 1024) {
-        m_switchSC = SwitchStatus3Pos::SWITCH_DOWN;
-    } else {
-        m_switchSC = SwitchStatus3Pos::SWITCH_MIDDLE;
+    m_lastSwitchSD = m_switchSD;
+    if (m_config.switchSCSD != ET08AChannelIndex::CH_NONE) { // SC和SD复用通道, SC微调
+        if (m_protocolData.switchSCSD < 1024) {
+            m_switchSD = SwitchStatus2Pos::SWITCH_UP;
+            switch ((m_protocolData.switchSCSD - 151) / 201) {
+                case 0:
+                    m_switchSC = SwitchStatus3Pos::SWITCH_UP;
+                    break;
+                case 1:
+                    m_switchSC = SwitchStatus3Pos::SWITCH_MIDDLE;
+                    break;
+                case 2:
+                    m_switchSC = SwitchStatus3Pos::SWITCH_DOWN;
+                    break;
+                default:
+                    break;
+            }
+        } else {
+            m_switchSD = SwitchStatus2Pos::SWITCH_DOWN;
+            switch ((m_protocolData.switchSCSD - 1493) / 201) {
+                case 0:
+                    m_switchSC = SwitchStatus3Pos::SWITCH_UP;
+                    break;
+                case 1:
+                    m_switchSC = SwitchStatus3Pos::SWITCH_MIDDLE;
+                    break;
+                case 2:
+                    m_switchSC = SwitchStatus3Pos::SWITCH_DOWN;
+                    break;
+                default:
+                    break;
+            }
+        }
+    } else { // SC和SD使用独立通道
+        if (m_protocolData.switchSC < 1024) {
+            m_switchSC = SwitchStatus3Pos::SWITCH_UP;
+        } else if (m_protocolData.switchSC > 1024) {
+            m_switchSC = SwitchStatus3Pos::SWITCH_DOWN;
+        } else {
+            m_switchSC = SwitchStatus3Pos::SWITCH_MIDDLE;
+        }
+        if (m_protocolData.switchSD < 1024) {
+            m_switchSD = SwitchStatus2Pos::SWITCH_UP;
+        } else {
+            m_switchSD = SwitchStatus2Pos::SWITCH_DOWN;
+        }
     }
     m_eventSC      = judgeSwitchEvent(m_switchSC, m_lastSwitchSC);
-    m_lastSwitchSD = m_switchSD;
-    if (m_protocolData.switchSD < 1200) {
-        m_switchSD = SwitchStatus2Pos::SWITCH_UP;
-    } else {
-        m_switchSD = SwitchStatus2Pos::SWITCH_DOWN;
-    }
     m_eventSD = judgeSwitchEvent(m_switchSD, m_lastSwitchSD);
 }
 
@@ -376,7 +447,7 @@ void ET08ARemoteControl::parseET08AProtocol(const uint8_t *buffer, ET08AProtocol
 {
     if (buffer == nullptr) return;
 
-    std::uint16_t temp_ch[16];
+    uint16_t temp_ch[16];
 
     temp_ch[0]  = ((buffer[0] | buffer[1] << 8) & 0x07FF);
     temp_ch[1]  = ((buffer[1] >> 3 | buffer[2] << 5) & 0x07FF);
@@ -409,6 +480,9 @@ void ET08ARemoteControl::parseET08AProtocol(const uint8_t *buffer, ET08AProtocol
     out.switchSB = getChannelValue(m_config.switchSB);
     out.switchSC = getChannelValue(m_config.switchSC);
     out.switchSD = getChannelValue(m_config.switchSD);
+
+    out.switchSASB = getChannelValue(m_config.switchSASB);
+    out.switchSCSD = getChannelValue(m_config.switchSCSD);
 
     out.knobLD = getChannelValue(m_config.knobLD);
     out.knobRD = getChannelValue(m_config.knobRD);

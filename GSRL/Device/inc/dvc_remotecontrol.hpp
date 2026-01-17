@@ -269,7 +269,8 @@ public:
 };
 
 /**
- * @brief 大疆ET08A遥控器类 (W.BUS)
+ * @brief 天地飞ET08A遥控器类 (W.BUS)
+ * @note 详细使用文档见Documentation/Device/ET08ARemoteControl.md
  */
 class ET08ARemoteControl : public RemoteControl
 {
@@ -301,9 +302,11 @@ public:
         ET08AChannelIndex leftStickJ3Y  = ET08AChannelIndex::CH_2;
         ET08AChannelIndex leftStickJ4X  = ET08AChannelIndex::CH_4;
         ET08AChannelIndex switchSA      = ET08AChannelIndex::CH_NONE;
-        ET08AChannelIndex switchSB      = ET08AChannelIndex::CH_5;
-        ET08AChannelIndex switchSC      = ET08AChannelIndex::CH_6;
+        ET08AChannelIndex switchSB      = ET08AChannelIndex::CH_NONE;
+        ET08AChannelIndex switchSC      = ET08AChannelIndex::CH_NONE;
         ET08AChannelIndex switchSD      = ET08AChannelIndex::CH_NONE;
+        ET08AChannelIndex switchSASB    = ET08AChannelIndex::CH_5; // 复用SA和SB通道,SB微调
+        ET08AChannelIndex switchSCSD    = ET08AChannelIndex::CH_6; // 复用SC和SD通道,SC微调
         ET08AChannelIndex knobLD        = ET08AChannelIndex::CH_7;
         ET08AChannelIndex knobRD        = ET08AChannelIndex::CH_8;
         ET08AChannelIndex trimmerT1     = ET08AChannelIndex::CH_NONE;
@@ -322,6 +325,8 @@ private:
         uint16_t switchSB;
         uint16_t switchSC;
         uint16_t switchSD;
+        uint16_t switchSASB;
+        uint16_t switchSCSD;
         uint16_t knobLD;
         uint16_t knobRD;
         uint16_t trimmerT1;
