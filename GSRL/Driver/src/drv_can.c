@@ -115,7 +115,7 @@ HAL_StatusTypeDef CAN_Send_Data(CAN_HandleTypeDef *hcan, CAN_TxHeaderTypeDef *pT
  */
 static void can_all_pass_filter_init(CAN_HandleTypeDef *hcan)
 {
-    CAN_FilterTypeDef can_filter_st; // 全通过滤器
+    CAN_FilterTypeDef can_filter_st    = {0}; // 全通过滤器
     can_filter_st.FilterMode           = CAN_FILTERMODE_IDMASK;
     can_filter_st.FilterScale          = CAN_FILTERSCALE_32BIT;
     can_filter_st.FilterIdHigh         = 0x0000;
@@ -124,17 +124,17 @@ static void can_all_pass_filter_init(CAN_HandleTypeDef *hcan)
     can_filter_st.FilterMaskIdLow      = 0x0000;
     can_filter_st.FilterFIFOAssignment = CAN_FilterFIFO0;
     can_filter_st.FilterActivation     = CAN_FILTER_ENABLE;
+    can_filter_st.SlaveStartFilterBank = 14;
 
     if (hcan->Instance == CAN1) {
         can_filter_st.FilterBank = 0;
-        HAL_CAN_ConfigFilter(hcan, &can_filter_st);
+    } else if (hcan->Instance == CAN2) {
+        can_filter_st.FilterBank = 14;
+    } else {
+        return;
     }
 
-    if (hcan->Instance == CAN2) {
-        can_filter_st.SlaveStartFilterBank = 14;
-        can_filter_st.FilterBank           = 14;
-        HAL_CAN_ConfigFilter(hcan, &can_filter_st);
-    }
+    HAL_CAN_ConfigFilter(hcan, &can_filter_st);
 }
 
 /**
