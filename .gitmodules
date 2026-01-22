@@ -4,6 +4,3 @@
 [submodule "GSRL/Dependence/CMSIS-DSP"]
 	path = GSRL/Dependence/CMSIS-DSP
 	url = https://github.com/ARM-software/CMSIS-DSP.git
-[submodule "GSRL/Dependence/osqp"]
-	path = GSRL/Dependence/osqp
-	url = https://github.com/osqp/osqp.git
