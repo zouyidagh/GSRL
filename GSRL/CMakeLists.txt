@@ -4,20 +4,9 @@ project(gsrl LANGUAGES C CXX)
 
 add_library(${PROJECT_NAME} OBJECT)
 
-# Add CMSIS-DSP library
 set(CMSISCORE "${CMAKE_SOURCE_DIR}/CubeMX_BSP/Drivers/CMSIS/Core")
 add_subdirectory(Dependence/CMSIS-DSP)
-
-# Add Eigen library
 add_subdirectory(Dependence/eigen)
-
-# Add OSQP library
-set(EMBEDDED 2)
-set(OSQP_EMBEDDED_MODE 2)
-set(OSQP_USE_FLOAT ON)
-add_subdirectory(Dependence/osqp)
-target_compile_options(OSQPLIB PRIVATE -w)
-target_compile_options(osqpstatic PRIVATE -w)
 
 file(GLOB_RECURSE GSRL_ALGORITHM_SOURCES
     "Algorithm/src/*.c"
@@ -60,5 +49,4 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     stm32cubemx
     CMSISDSP
     eigen
-    osqpstatic
 )
