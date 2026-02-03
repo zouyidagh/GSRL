@@ -12,6 +12,7 @@
  */
 /* Includes ------------------------------------------------------------------*/
 #include "dvc_imu.hpp"
+#include "alg_general.hpp"
 #include "drv_misc.h"
 #include "cmsis_os.h"
 
@@ -121,9 +122,10 @@ IMU::IMU(AHRS *ahrs)
  * @param calibrationInfo 校准信息
  * @param errorCallback 错误回调函数
  * @param magnet 磁力计扩展类接口
+ * @param tempCtrlConfig 温度控制配置
  */
-BMI088::BMI088(AHRS *ahrs, SPIConfig accelSPIConfig, SPIConfig gyroSPIConfig, CalibrationInfo calibrationInfo, ErrorCallback errorCallback, IST8310 *magnet)
-    : IMU(ahrs), m_accelSPIConfig(accelSPIConfig), m_gyroSPIConfig(gyroSPIConfig), m_calibrationInfo(calibrationInfo), m_errorCallback(errorCallback), m_magnet(magnet)
+BMI088::BMI088(AHRS *ahrs, SPIConfig accelSPIConfig, SPIConfig gyroSPIConfig, CalibrationInfo calibrationInfo, ErrorCallback errorCallback, IST8310 *magnet, TemperatureCtrlConfig *tempCtrlConfig)
+    : IMU(ahrs), m_accelSPIConfig(accelSPIConfig), m_gyroSPIConfig(gyroSPIConfig), m_calibrationInfo(calibrationInfo), m_errorCallback(errorCallback), m_magnet(magnet), m_tempCtrlConfig(tempCtrlConfig)
 {
     m_errorCode = BMI088_NO_ERROR;
 }
@@ -150,6 +152,11 @@ bool BMI088::init()
         handleError(BMI088_SELF_TEST_GYRO_ERROR);
         return false;
     }
+
+    if (m_tempCtrlConfig != nullptr) {
+        HAL_TIM_PWM_Start(m_tempCtrlConfig->htim, m_tempCtrlConfig->channel);
+    }
+
     return true;
 }
 
@@ -496,6 +503,30 @@ bool BMI088::selfTestGyro()
     }
 
     return true;
+}
+
+/**
+ * @brief 温度控制
+ * @param targetTemp 目标温度(°C)
+ * @note 如果配置了温度控制，该方法将读取当前温度，通过PID控制器计算PWM占空比
+ */
+void BMI088::temperatureControl(fp32 targetTemp)
+{
+    if (m_tempCtrlConfig == nullptr) {
+        return;
+    }
+
+    // 计算控制器输出
+    fp32 pwmOutput = m_tempCtrlConfig->controller->controllerCalculate(
+        targetTemp,
+        &m_temperature,
+        1);
+    GSRLMath::constrain(pwmOutput, 0.0f, 100.0f);
+
+    // 设置PWM占空比
+    uint32_t arr          = __HAL_TIM_GET_AUTORELOAD(m_tempCtrlConfig->htim);
+    uint32_t compareValue = (uint32_t)((pwmOutput / 100.0f) * arr);
+    __HAL_TIM_SET_COMPARE(m_tempCtrlConfig->htim, m_tempCtrlConfig->channel, compareValue);
 }
 
 /**

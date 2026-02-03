@@ -61,6 +61,23 @@ namespace GSRLMath
     }
 
     /**
+     * @brief 限幅, 将num限制在lowerLimit到upperLimit之间
+     * @param num 输入值
+     * @param lowerLimit 下限值
+     * @param upperLimit 上限值
+     * @tparam Tp 数据类型
+     */
+    template <typename Tp>
+    constexpr inline void constrain(Tp &num, Tp lowerLimit, Tp upperLimit)
+    {
+        if (num > upperLimit) {
+            num = upperLimit;
+        } else if (num < lowerLimit) {
+            num = lowerLimit;
+        }
+    }
+
+    /**
      * @brief 浮点数转换为无符号整数函数
      * @param x_float 待转换的浮点数
      * @param x_min 范围最小值

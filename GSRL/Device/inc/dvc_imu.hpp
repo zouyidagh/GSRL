@@ -18,6 +18,7 @@
 #include "gsrl_common.h"
 #include "drv_spi.h"
 #include "alg_ahrs.hpp"
+#include "alg_pid.hpp"
 #include "Define/def_bmi088.h"
 
 /* Exported types ------------------------------------------------------------*/
@@ -45,7 +46,7 @@ protected:
     Vector3f m_magnetData;    // 磁力计数据(校准后传入AHRS)
 
 public:
-    virtual ~IMU() = default;
+    virtual ~IMU()      = default;
     virtual bool init() = 0;
     const Vector3f &solveAttitude();
     const Vector3f &getGyro() const;
@@ -57,7 +58,7 @@ public:
 
 protected:
     IMU(AHRS *ahrs);
-    virtual void readRawData() = 0;
+    virtual void readRawData()     = 0;
     virtual void dataCalibration() = 0;
 };
 
@@ -92,6 +93,19 @@ public:
         BMI088_NO_SENSOR                    = 0xFF,
     };
     typedef void (*ErrorCallback)(ErrorCode errorCode); // 错误回调函数
+
+    /**
+     * @brief 温度控制配置结构体
+     * @note 用于BMI088的温度控制
+     * - htim 定时器句柄
+     * - channel 定时器通道
+     * - controller 温度控制器接口, 输出控制量有效值范围[0, 100]
+     */
+    struct TemperatureCtrlConfig {
+        TIM_HandleTypeDef *htim; // 定时器句柄
+        uint32_t channel;        // 定时器通道
+        Controller *controller;  // 温度控制器接口
+    };
 
     /**
      * @brief SPI配置结构体
@@ -129,13 +143,15 @@ protected:
     ErrorCode m_errorCode;                   // 错误码
     IST8310 *m_magnet;                       // 磁力计扩展类
     fp32 m_temperature;                      // 温度值
+    TemperatureCtrlConfig *m_tempCtrlConfig; // 温度控制配置
     // 常量定义
     static constexpr fp32 ACCEL_SEN = BMI088_ACCEL_3G_SEN;
     static constexpr fp32 GYRO_SEN  = BMI088_GYRO_2000_SEN;
 
 public:
-    BMI088(AHRS *ahrs, SPIConfig accelSPIConfig, SPIConfig gyroSPIConfig, CalibrationInfo calibrationInfo, ErrorCallback errorCallback = nullptr, IST8310 *magnet = nullptr);
+    BMI088(AHRS *ahrs, SPIConfig accelSPIConfig, SPIConfig gyroSPIConfig, CalibrationInfo calibrationInfo, ErrorCallback errorCallback = nullptr, IST8310 *magnet = nullptr, TemperatureCtrlConfig *tempCtrlConfig = nullptr);
     bool init() override;
+    void temperatureControl(fp32 targetTemp);
 
 protected:
     void readRawData() override;
