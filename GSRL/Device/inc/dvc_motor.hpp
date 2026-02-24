@@ -146,9 +146,15 @@ protected:
 };
 
 /**
+ * @brief M2006电机类型别名
+ * @note 复用M3508的CAN通信协议和控制方法
+ */
+using MotorM2006 = MotorM3508;
+
+/**
  * @brief 达妙DMJ4310电机类
  * @note 请使用达妙电机默认固件，本类基于MIT模式单力矩输出控制帧，其余计算(如PID)在stm32上实现
- * @note 使用前先用达妙电机调试助手查看电机驱动板的PMAX、VMAX、TMAX参数，确保控制板与代码中的参数一致，否则会导致数据解包错误
+ * @note 使用前先用达妙电机调试助手查看电机驱动板的PMAX、VMAX、TMAX参数，确保控制板与构造函数中的参数一致，否则会导致数据解包错误
  * @note 请将PMAX值设置位PI(3.1415926), 请将PMAX值设置位PI(3.141593), 重要！！！
  * @note 建议合理设置电机CANTimeout, 以避免电机掉线不受控, 本类会在电机重连后自动清除错误状态并使能电机
  * @details 该类实现了Motor类的纯虚函数，用于控制达妙4310电机
@@ -184,6 +190,15 @@ protected:
     bool decodeCanRxMessage(const can_rx_message_t &rxMessage) override;
     void convertControllerOutputToMotorControlData() override;
 };
+
+/**
+ * @brief 达妙DM-S2325-1EC电机类型别名
+ * @note 复用DMJ4310的MIT控制协议
+ * @note 使用前先用达妙电机调试助手查看电机驱动板的PMAX、VMAX、TMAX参数，确保控制板与构造函数中的参数一致，否则会导致数据解包错误
+ * @note 请将PMAX值设置位PI(3.1415926), 请将PMAX值设置位PI(3.141593), 重要！！！
+ * @note 建议合理设置电机CANTimeout, 以避免电机掉线不受控, 本类会在电机重连后自动清除错误状态并使能电机
+ */
+using MotorDM2325 = MotorDM4310;
 
 /**
  * @brief 瓴控MG系列电机类
