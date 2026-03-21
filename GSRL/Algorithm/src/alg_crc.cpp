@@ -63,7 +63,7 @@ uint16_t CRCCalculator::calculateCRC16(const uint8_t *data, uint32_t length, uin
     if (data == nullptr) return 0xFFFF;
     while (length--) {
         uint8_t byte = *data++;
-        crc = (crc >> 8) ^ CRC16_TABLE[(crc ^ byte) & 0x00FF];
+        crc          = (crc >> 8) ^ CRC16_TABLE[(crc ^ byte) & 0x00FF];
     }
     return crc;
 }
@@ -85,7 +85,7 @@ bool CRCCalculator::verifyCRC16(const uint8_t *data, uint32_t length)
 void CRCCalculator::appendCRC16(uint8_t *data, uint32_t length)
 {
     if (data == nullptr || length <= 2) return;
-    uint16_t crc = calculateCRC16(data, length - 2);
+    uint16_t crc     = calculateCRC16(data, length - 2);
     data[length - 2] = crc & 0xFF;
     data[length - 1] = (crc >> 8) & 0xFF;
 }

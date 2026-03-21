@@ -105,7 +105,7 @@ void Referee::receiveRxDataFromISR(const uint8_t *data, uint16_t length)
 
             case UnpackStep::LENGTH_HIGH: {
                 m_unpackCtx.packetBuffer[m_unpackCtx.index++] = byte;
-                m_unpackCtx.dataLength = static_cast<uint16_t>(
+                m_unpackCtx.dataLength                        = static_cast<uint16_t>(
                     m_unpackCtx.packetBuffer[1] | (m_unpackCtx.packetBuffer[2] << 8));
                 if (m_unpackCtx.dataLength >= FRAME_MAX_SIZE - HEADER_SIZE - CMD_ID_SIZE - CRC16_SIZE) {
                     m_unpackCtx.step = UnpackStep::HEADER_SOF;
@@ -273,8 +273,7 @@ uint16_t Referee::getClientIDFromRobotID(uint8_t robotID)
  * @return HAL_StatusTypeDef HAL_OK发送成功，HAL_ERROR参数错误或UART句柄为空
  * @note 内部函数，帧格式: SOF(1) + dataLength(2) + seq(1) + CRC8(1) + cmdID(2) + data(n) + CRC16(2)
  */
-HAL_StatusTypeDef Referee::sendFrame(UART_HandleTypeDef *huart, CmdID cmdID,
-                                     const uint8_t *data, uint16_t dataLength)
+HAL_StatusTypeDef Referee::sendFrame(UART_HandleTypeDef *huart, CmdID cmdID, const uint8_t *data, uint16_t dataLength)
 {
     if (huart == nullptr) {
         return HAL_ERROR;
@@ -322,11 +321,10 @@ HAL_StatusTypeDef Referee::sendFrame(UART_HandleTypeDef *huart, CmdID cmdID,
  * @note 内部函数，自动填充发送者ID为本机robotID
  * @note 数据段格式: dataCmdID(2) + senderID(2) + receiverID(2) + content(n)，最大118字节
  */
-HAL_StatusTypeDef Referee::sendInteraction(uint16_t dataCmdID, uint16_t receiverID,
-                                           const uint8_t *content, uint16_t contentLength)
+HAL_StatusTypeDef Referee::sendInteraction(uint16_t dataCmdID, uint16_t receiverID, const uint8_t *content, uint16_t contentLength)
 {
     static constexpr uint16_t INTERACTION_HEADER_SIZE = 6;
-    uint16_t dataLength = INTERACTION_HEADER_SIZE + contentLength;
+    uint16_t dataLength                               = INTERACTION_HEADER_SIZE + contentLength;
 
     if (dataLength > 118) {
         return HAL_ERROR;
@@ -487,7 +485,7 @@ HAL_StatusTypeDef Referee::sendRadarCmd(const RadarCmdData &cmd)
  * @note 通过普通链路发送，命令ID 0x0301
  */
 HAL_StatusTypeDef Referee::sendRobotToRobotData(uint16_t dataCmdID, uint16_t receiverID,
-                                                 const uint8_t *data, uint16_t dataLength)
+                                                const uint8_t *data, uint16_t dataLength)
 {
     return sendInteraction(dataCmdID, receiverID, data, dataLength);
 }
@@ -500,7 +498,8 @@ HAL_StatusTypeDef Referee::sendRobotToRobotData(uint16_t dataCmdID, uint16_t rec
  */
 HAL_StatusTypeDef Referee::sendMapPath(const MapPathData &pathData)
 {
-    return sendFrame(m_huartCommon, CmdID::MAP_DATA,
+    return sendFrame(m_huartCommon,
+                     CmdID::MAP_DATA,
                      reinterpret_cast<const uint8_t *>(&pathData),
                      sizeof(MapPathData));
 }
@@ -526,7 +525,8 @@ HAL_StatusTypeDef Referee::sendCustomInfo(uint16_t receiverID, const uint8_t *da
         memcpy(info.userData, data, dataLength);
     }
 
-    return sendFrame(m_huartCommon, CmdID::CUSTOM_INFO,
+    return sendFrame(m_huartCommon,
+                     CmdID::CUSTOM_INFO,
                      reinterpret_cast<const uint8_t *>(&info),
                      sizeof(CustomInfoData));
 }
@@ -540,8 +540,7 @@ HAL_StatusTypeDef Referee::sendCustomInfo(uint16_t receiverID, const uint8_t *da
  */
 HAL_StatusTypeDef Referee::sendCustomController(const uint8_t *data, uint16_t dataLength)
 {
-    return sendFrame(m_huartImageTransmission, CmdID::CUSTOM_CONTROLLER,
-                     data, dataLength);
+    return sendFrame(m_huartImageTransmission, CmdID::CUSTOM_CONTROLLER, data, dataLength);
 }
 
 /**
@@ -553,6 +552,5 @@ HAL_StatusTypeDef Referee::sendCustomController(const uint8_t *data, uint16_t da
  */
 HAL_StatusTypeDef Referee::sendCustomRobotToClient(const uint8_t *data, uint16_t dataLength)
 {
-    return sendFrame(m_huartImageTransmission, CmdID::CUSTOM_ROBOT_TO_CLIENT,
-                     data, dataLength);
+    return sendFrame(m_huartImageTransmission, CmdID::CUSTOM_ROBOT_TO_CLIENT, data, dataLength);
 }
