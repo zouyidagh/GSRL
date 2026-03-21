@@ -249,12 +249,12 @@ void Referee::solveFrameData(const uint8_t *frame)
 /**
  * @brief 根据机器人ID获取对应操作手端ID
  * @param robotID 机器人ID
- * @return 对应操作手端ID
+ * @return uint16_t 对应操作手端ID，无效ID返回0
+ * @note 红方机器人ID 1~9 对应客户端ID 0x0101~0x0109
+ * @note 蓝方机器人ID 101~109 对应客户端ID 0x0165~0x016D
  */
 uint16_t Referee::getClientIDFromRobotID(uint8_t robotID)
 {
-    // 红方机器人ID: 1~9 → 客户端ID: 0x0101~0x0109
-    // 蓝方机器人ID: 101~109 → 客户端ID: 0x0165~0x016D
     if (robotID >= 1 && robotID <= 9) {
         return 0x0100 + robotID;
     }
@@ -265,12 +265,13 @@ uint16_t Referee::getClientIDFromRobotID(uint8_t robotID)
 }
 
 /**
- * @brief 构建并发送一帧数据
+ * @brief 构建完整协议帧并通过指定UART发送
  * @param huart 目标UART句柄
  * @param cmdID 命令ID
  * @param data 数据段内容指针
  * @param dataLength 数据段长度
- * @return 发送结果
+ * @return HAL_StatusTypeDef HAL_OK发送成功，HAL_ERROR参数错误或UART句柄为空
+ * @note 内部函数，帧格式: SOF(1) + dataLength(2) + seq(1) + CRC8(1) + cmdID(2) + data(n) + CRC16(2)
  */
 HAL_StatusTypeDef Referee::sendFrame(UART_HandleTypeDef *huart, CmdID cmdID,
                                      const uint8_t *data, uint16_t dataLength)
@@ -312,21 +313,22 @@ HAL_StatusTypeDef Referee::sendFrame(UART_HandleTypeDef *huart, CmdID cmdID,
 }
 
 /**
- * @brief 封装0x0301机器人交互数据并发送（普通链路）
+ * @brief 封装0x0301机器人交互数据并通过普通链路发送
  * @param dataCmdID 子内容ID
  * @param receiverID 接收者ID
  * @param content 子内容数据指针
  * @param contentLength 子内容数据长度
- * @return 发送结果
+ * @return HAL_StatusTypeDef HAL_OK发送成功，HAL_ERROR数据长度超限或发送失败
+ * @note 内部函数，自动填充发送者ID为本机robotID
+ * @note 数据段格式: dataCmdID(2) + senderID(2) + receiverID(2) + content(n)，最大118字节
  */
 HAL_StatusTypeDef Referee::sendInteraction(uint16_t dataCmdID, uint16_t receiverID,
                                            const uint8_t *content, uint16_t contentLength)
 {
-    // 0x0301数据段 = 子内容ID(2) + 发送者ID(2) + 接收者ID(2) + 内容(n)
     static constexpr uint16_t INTERACTION_HEADER_SIZE = 6;
     uint16_t dataLength = INTERACTION_HEADER_SIZE + contentLength;
 
-    if (dataLength > 118) { // 最大数据段长度限制
+    if (dataLength > 118) {
         return HAL_ERROR;
     }
 
@@ -352,6 +354,10 @@ HAL_StatusTypeDef Referee::sendInteraction(uint16_t dataCmdID, uint16_t receiver
 
 /**
  * @brief 删除UI图层
+ * @param deleteType 删除类型 0:空操作 1:删除指定图层 2:删除所有图层
+ * @param layer 图层号 0~9
+ * @return HAL_StatusTypeDef HAL_OK发送成功，HAL_ERROR发送失败
+ * @note 通过普通链路发送，子内容ID 0x0100
  */
 HAL_StatusTypeDef Referee::sendUILayerDelete(uint8_t deleteType, uint8_t layer)
 {
@@ -367,7 +373,10 @@ HAL_StatusTypeDef Referee::sendUILayerDelete(uint8_t deleteType, uint8_t layer)
 }
 
 /**
- * @brief 绘制1个图形
+ * @brief 绘制1个UI图形
+ * @param figure 图形数据
+ * @return HAL_StatusTypeDef HAL_OK发送成功，HAL_ERROR发送失败
+ * @note 通过普通链路发送，子内容ID 0x0101
  */
 HAL_StatusTypeDef Referee::sendUIDrawFigure(const InteractionFigure &figure)
 {
@@ -379,7 +388,10 @@ HAL_StatusTypeDef Referee::sendUIDrawFigure(const InteractionFigure &figure)
 }
 
 /**
- * @brief 绘制2个图形
+ * @brief 绘制2个UI图形
+ * @param figures 图形数据数组，长度为2
+ * @return HAL_StatusTypeDef HAL_OK发送成功，HAL_ERROR发送失败
+ * @note 通过普通链路发送，子内容ID 0x0102
  */
 HAL_StatusTypeDef Referee::sendUIDrawFigures2(const InteractionFigure figures[2])
 {
@@ -391,7 +403,10 @@ HAL_StatusTypeDef Referee::sendUIDrawFigures2(const InteractionFigure figures[2]
 }
 
 /**
- * @brief 绘制5个图形
+ * @brief 绘制5个UI图形
+ * @param figures 图形数据数组，长度为5
+ * @return HAL_StatusTypeDef HAL_OK发送成功，HAL_ERROR发送失败
+ * @note 通过普通链路发送，子内容ID 0x0103
  */
 HAL_StatusTypeDef Referee::sendUIDrawFigures5(const InteractionFigure figures[5])
 {
@@ -403,7 +418,10 @@ HAL_StatusTypeDef Referee::sendUIDrawFigures5(const InteractionFigure figures[5]
 }
 
 /**
- * @brief 绘制7个图形
+ * @brief 绘制7个UI图形
+ * @param figures 图形数据数组，长度为7
+ * @return HAL_StatusTypeDef HAL_OK发送成功，HAL_ERROR发送失败
+ * @note 通过普通链路发送，子内容ID 0x0104
  */
 HAL_StatusTypeDef Referee::sendUIDrawFigures7(const InteractionFigure figures[7])
 {
@@ -415,7 +433,10 @@ HAL_StatusTypeDef Referee::sendUIDrawFigures7(const InteractionFigure figures[7]
 }
 
 /**
- * @brief 绘制字符图形
+ * @brief 绘制UI字符图形
+ * @param character 字符图形数据，包含图形属性和最多30字节字符内容
+ * @return HAL_StatusTypeDef HAL_OK发送成功，HAL_ERROR发送失败
+ * @note 通过普通链路发送，子内容ID 0x0110
  */
 HAL_StatusTypeDef Referee::sendUIDrawCharacter(const InteractionCharacter &character)
 {
@@ -428,6 +449,10 @@ HAL_StatusTypeDef Referee::sendUIDrawCharacter(const InteractionCharacter &chara
 
 /**
  * @brief 发送哨兵自主决策指令
+ * @param cmd 哨兵决策指令数据
+ * @return HAL_StatusTypeDef HAL_OK发送成功，HAL_ERROR发送失败
+ * @note 通过普通链路发送至裁判服务器(0x8080)，子内容ID 0x0120
+ * @note 仅哨兵机器人可调用
  */
 HAL_StatusTypeDef Referee::sendSentryCmd(const SentryCmdData &cmd)
 {
@@ -439,6 +464,10 @@ HAL_StatusTypeDef Referee::sendSentryCmd(const SentryCmdData &cmd)
 
 /**
  * @brief 发送雷达自主决策指令
+ * @param cmd 雷达决策指令数据，包含决策指令和密钥
+ * @return HAL_StatusTypeDef HAL_OK发送成功，HAL_ERROR发送失败
+ * @note 通过普通链路发送至裁判服务器(0x8080)，子内容ID 0x0121
+ * @note 仅雷达机器人可调用
  */
 HAL_StatusTypeDef Referee::sendRadarCmd(const RadarCmdData &cmd)
 {
@@ -450,6 +479,12 @@ HAL_StatusTypeDef Referee::sendRadarCmd(const RadarCmdData &cmd)
 
 /**
  * @brief 发送机器人间交互数据
+ * @param dataCmdID 子内容ID，范围0x0200~0x02FF
+ * @param receiverID 接收者机器人ID
+ * @param data 数据指针
+ * @param dataLength 数据长度，最大112字节
+ * @return HAL_StatusTypeDef HAL_OK发送成功，HAL_ERROR数据超限或发送失败
+ * @note 通过普通链路发送，命令ID 0x0301
  */
 HAL_StatusTypeDef Referee::sendRobotToRobotData(uint16_t dataCmdID, uint16_t receiverID,
                                                  const uint8_t *data, uint16_t dataLength)
@@ -458,7 +493,10 @@ HAL_StatusTypeDef Referee::sendRobotToRobotData(uint16_t dataCmdID, uint16_t rec
 }
 
 /**
- * @brief 发送小地图路径数据 (0x0307，普通链路)
+ * @brief 发送小地图路径数据
+ * @param pathData 路径数据，包含起点坐标和增量数组
+ * @return HAL_StatusTypeDef HAL_OK发送成功，HAL_ERROR发送失败
+ * @note 通过普通链路发送，命令ID 0x0307，频率上限1Hz
  */
 HAL_StatusTypeDef Referee::sendMapPath(const MapPathData &pathData)
 {
@@ -468,7 +506,12 @@ HAL_StatusTypeDef Referee::sendMapPath(const MapPathData &pathData)
 }
 
 /**
- * @brief 发送自定义消息 (0x0308，普通链路)
+ * @brief 发送自定义消息
+ * @param receiverID 接收者ID
+ * @param data UTF-16编码数据指针
+ * @param dataLength 数据长度，最大30字节
+ * @return HAL_StatusTypeDef HAL_OK发送成功，HAL_ERROR数据超限或发送失败
+ * @note 通过普通链路发送，命令ID 0x0308，频率上限3Hz
  */
 HAL_StatusTypeDef Referee::sendCustomInfo(uint16_t receiverID, const uint8_t *data, uint16_t dataLength)
 {
@@ -489,7 +532,11 @@ HAL_StatusTypeDef Referee::sendCustomInfo(uint16_t receiverID, const uint8_t *da
 }
 
 /**
- * @brief 发送自定义控制器数据 (0x0302，图传链路)
+ * @brief 发送自定义控制器数据
+ * @param data 数据指针
+ * @param dataLength 数据长度，最大30字节
+ * @return HAL_StatusTypeDef HAL_OK发送成功，HAL_ERROR发送失败
+ * @note 通过图传链路发送，命令ID 0x0302，频率上限30Hz
  */
 HAL_StatusTypeDef Referee::sendCustomController(const uint8_t *data, uint16_t dataLength)
 {
@@ -498,7 +545,11 @@ HAL_StatusTypeDef Referee::sendCustomController(const uint8_t *data, uint16_t da
 }
 
 /**
- * @brief 发送自定义机器人→客户端数据 (0x0311，图传链路)
+ * @brief 发送自定义机器人到客户端数据
+ * @param data 数据指针
+ * @param dataLength 数据长度
+ * @return HAL_StatusTypeDef HAL_OK发送成功，HAL_ERROR发送失败
+ * @note 通过图传链路发送，命令ID 0x0311，频率上限75Hz
  */
 HAL_StatusTypeDef Referee::sendCustomRobotToClient(const uint8_t *data, uint16_t dataLength)
 {

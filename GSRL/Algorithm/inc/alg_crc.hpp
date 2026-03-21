@@ -1,7 +1,7 @@
 /**
  ******************************************************************************
  * @file           : alg_crc.hpp
- * @brief          : CRC8和CRC16校验算法
+ * @brief          : header file for alg_crc.cpp
  ******************************************************************************
  * @attention
  *
@@ -16,7 +16,6 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include <cstdint>
-#include <cstddef>
 
 /* Exported types ------------------------------------------------------------*/
 
@@ -24,6 +23,8 @@
  * @brief CRC校验算法类
  * @details 提供CRC8和CRC16的计算、校验和追加功能，基于查表法实现
  * @note 适用于RoboMaster裁判系统通信协议
+ *       CRC8多项式: G(x) = x^8 + x^5 + x^4 + 1，初始值0xFF
+ *       CRC16初始值0xFFFF
  */
 class CRCCalculator
 {
@@ -35,13 +36,7 @@ public:
      * @param crc 初始CRC8值，默认0xFF
      * @return 计算得到的CRC8值
      */
-    static uint8_t calculateCRC8(const uint8_t *data, uint32_t length, uint8_t crc = CRC8_INIT)
-    {
-        while (length--) {
-            crc = m_crc8Table[crc ^ (*data++)];
-        }
-        return crc;
-    }
+    static uint8_t calculateCRC8(const uint8_t *data, uint32_t length, uint8_t crc = CRC8_INIT);
 
     /**
      * @brief 校验CRC8
@@ -49,22 +44,14 @@ public:
      * @param length 数据总长度（含CRC8）
      * @return 校验通过返回true
      */
-    static bool verifyCRC8(const uint8_t *data, uint32_t length)
-    {
-        if (data == nullptr || length <= 1) return false;
-        return calculateCRC8(data, length - 1) == data[length - 1];
-    }
+    static bool verifyCRC8(const uint8_t *data, uint32_t length);
 
     /**
      * @brief 在数据末尾追加CRC8校验字节
      * @param data 数据指针
      * @param length 数据总长度（含CRC8位置）
      */
-    static void appendCRC8(uint8_t *data, uint32_t length)
-    {
-        if (data == nullptr || length <= 1) return;
-        data[length - 1] = calculateCRC8(data, length - 1);
-    }
+    static void appendCRC8(uint8_t *data, uint32_t length);
 
     /**
      * @brief 计算CRC16校验值
@@ -73,15 +60,7 @@ public:
      * @param crc 初始CRC16值，默认0xFFFF
      * @return 计算得到的CRC16值
      */
-    static uint16_t calculateCRC16(const uint8_t *data, uint32_t length, uint16_t crc = CRC16_INIT)
-    {
-        if (data == nullptr) return 0xFFFF;
-        while (length--) {
-            uint8_t byte = *data++;
-            crc = (crc >> 8) ^ m_crc16Table[(crc ^ byte) & 0x00FF];
-        }
-        return crc;
-    }
+    static uint16_t calculateCRC16(const uint8_t *data, uint32_t length, uint16_t crc = CRC16_INIT);
 
     /**
      * @brief 校验CRC16
@@ -89,33 +68,21 @@ public:
      * @param length 数据总长度（含CRC16）
      * @return 校验通过返回true
      */
-    static bool verifyCRC16(const uint8_t *data, uint32_t length)
-    {
-        if (data == nullptr || length <= 2) return false;
-        uint16_t expected = calculateCRC16(data, length - 2);
-        return (expected & 0xFF) == data[length - 2] &&
-               ((expected >> 8) & 0xFF) == data[length - 1];
-    }
+    static bool verifyCRC16(const uint8_t *data, uint32_t length);
 
     /**
-     * @brief 在数据末尾追加CRC16校验字节
+     * @brief 在数据末尾追加CRC16校验字节（小端序）
      * @param data 数据指针
      * @param length 数据总长度（含CRC16位置）
      */
-    static void appendCRC16(uint8_t *data, uint32_t length)
-    {
-        if (data == nullptr || length <= 2) return;
-        uint16_t crc = calculateCRC16(data, length - 2);
-        data[length - 2] = crc & 0xFF;
-        data[length - 1] = (crc >> 8) & 0xFF;
-    }
+    static void appendCRC16(uint8_t *data, uint32_t length);
 
 private:
-    static constexpr uint8_t CRC8_INIT   = 0xFF;
+    static constexpr uint8_t  CRC8_INIT  = 0xFF;
     static constexpr uint16_t CRC16_INIT = 0xFFFF;
 
     // CRC8查找表，生成多项式: G(x) = x^8 + x^5 + x^4 + 1
-    static constexpr uint8_t m_crc8Table[256] = {
+    static constexpr uint8_t CRC8_TABLE[256] = {
         0x00, 0x5E, 0xBC, 0xE2, 0x61, 0x3F, 0xDD, 0x83, 0xC2, 0x9C, 0x7E, 0x20, 0xA3, 0xFD, 0x1F, 0x41,
         0x9D, 0xC3, 0x21, 0x7F, 0xFC, 0xA2, 0x40, 0x1E, 0x5F, 0x01, 0xE3, 0xBD, 0x3E, 0x60, 0x82, 0xDC,
         0x23, 0x7D, 0x9F, 0xC1, 0x42, 0x1C, 0xFE, 0xA0, 0xE1, 0xBF, 0x5D, 0x03, 0x80, 0xDE, 0x3C, 0x62,
@@ -135,7 +102,7 @@ private:
     };
 
     // CRC16查找表
-    static constexpr uint16_t m_crc16Table[256] = {
+    static constexpr uint16_t CRC16_TABLE[256] = {
         0x0000, 0x1189, 0x2312, 0x329B, 0x4624, 0x57AD, 0x6536, 0x74BF,
         0x8C48, 0x9DC1, 0xAF5A, 0xBED3, 0xCA6C, 0xDBE5, 0xE97E, 0xF8F7,
         0x1081, 0x0108, 0x3393, 0x221A, 0x56A5, 0x472C, 0x75B7, 0x643E,

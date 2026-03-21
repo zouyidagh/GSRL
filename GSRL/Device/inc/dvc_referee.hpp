@@ -499,28 +499,10 @@ private:
     uint8_t m_txBuffer[FRAME_MAX_SIZE];
     uint8_t m_txSeq;
 
-    /* ======================== 内部方法 ======================== */
+    // 内部方法
     void solveFrameData(const uint8_t *frame);
-
-    /**
-     * @brief 构建并发送一帧数据
-     * @param huart 目标UART句柄
-     * @param cmdID 命令ID
-     * @param data 数据段内容指针
-     * @param dataLength 数据段长度
-     * @return 发送结果
-     */
     HAL_StatusTypeDef sendFrame(UART_HandleTypeDef *huart, CmdID cmdID,
                                 const uint8_t *data, uint16_t dataLength);
-
-    /**
-     * @brief 封装0x0301机器人交互数据并发送（普通链路）
-     * @param dataCmdID 子内容ID
-     * @param receiverID 接收者ID
-     * @param content 子内容数据指针
-     * @param contentLength 子内容数据长度
-     * @return 发送结果
-     */
     HAL_StatusTypeDef sendInteraction(uint16_t dataCmdID, uint16_t receiverID,
                                       const uint8_t *content, uint16_t contentLength);
 
@@ -615,94 +597,23 @@ public:
      */
     uint16_t getProjectileAllowance42mm() const { return m_projectileAllowance.projectileAllowance42mm; }
 
-    /**
-     * @brief 根据机器人ID获取对应操作手端ID
-     * @param robotID 机器人ID
-     * @return 对应操作手端ID
-     */
+    // 工具方法
     static uint16_t getClientIDFromRobotID(uint8_t robotID);
-
-    /* ======================== 发送接口（普通链路） ======================== */
-
-    /**
-     * @brief 删除UI图层 (子内容ID 0x0100)
-     * @param deleteType 删除类型 0:空 1:删除图层 2:删除所有
-     * @param layer 图层号 0~9
-     */
+    // 发送接口（普通链路）
     HAL_StatusTypeDef sendUILayerDelete(uint8_t deleteType, uint8_t layer);
-
-    /**
-     * @brief 绘制1个图形 (子内容ID 0x0101)
-     */
     HAL_StatusTypeDef sendUIDrawFigure(const InteractionFigure &figure);
-
-    /**
-     * @brief 绘制2个图形 (子内容ID 0x0102)
-     */
     HAL_StatusTypeDef sendUIDrawFigures2(const InteractionFigure figures[2]);
-
-    /**
-     * @brief 绘制5个图形 (子内容ID 0x0103)
-     */
     HAL_StatusTypeDef sendUIDrawFigures5(const InteractionFigure figures[5]);
-
-    /**
-     * @brief 绘制7个图形 (子内容ID 0x0104)
-     */
     HAL_StatusTypeDef sendUIDrawFigures7(const InteractionFigure figures[7]);
-
-    /**
-     * @brief 绘制字符图形 (子内容ID 0x0110)
-     */
     HAL_StatusTypeDef sendUIDrawCharacter(const InteractionCharacter &character);
-
-    /**
-     * @brief 发送哨兵自主决策指令 (子内容ID 0x0120)
-     */
     HAL_StatusTypeDef sendSentryCmd(const SentryCmdData &cmd);
-
-    /**
-     * @brief 发送雷达自主决策指令 (子内容ID 0x0121)
-     */
     HAL_StatusTypeDef sendRadarCmd(const RadarCmdData &cmd);
-
-    /**
-     * @brief 发送小地图路径数据 (0x0307，普通链路)
-     */
     HAL_StatusTypeDef sendMapPath(const MapPathData &pathData);
-
-    /**
-     * @brief 发送自定义消息 (0x0308，普通链路)
-     * @param receiverID 接收者ID
-     * @param data UTF-16编码数据
-     * @param dataLength 数据长度（最大30字节）
-     */
     HAL_StatusTypeDef sendCustomInfo(uint16_t receiverID, const uint8_t *data, uint16_t dataLength);
-
-    /**
-     * @brief 发送机器人间交互数据 (子内容ID 0x0200~0x02FF)
-     * @param dataCmdID 子内容ID (0x0200~0x02FF)
-     * @param receiverID 接收者机器人ID
-     * @param data 数据指针
-     * @param dataLength 数据长度
-     */
     HAL_StatusTypeDef sendRobotToRobotData(uint16_t dataCmdID, uint16_t receiverID,
                                             const uint8_t *data, uint16_t dataLength);
-
-    /* ======================== 发送接口（图传链路） ======================== */
-
-    /**
-     * @brief 发送自定义控制器数据 (0x0302，图传链路)
-     * @param data 数据指针
-     * @param dataLength 数据长度（最大30字节）
-     */
+    // 发送接口（图传链路）
     HAL_StatusTypeDef sendCustomController(const uint8_t *data, uint16_t dataLength);
-
-    /**
-     * @brief 发送自定义机器人→客户端数据 (0x0311，图传链路)
-     * @param data 数据指针
-     * @param dataLength 数据长度
-     */
     HAL_StatusTypeDef sendCustomRobotToClient(const uint8_t *data, uint16_t dataLength);
 };
 
