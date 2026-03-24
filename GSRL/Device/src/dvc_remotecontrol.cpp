@@ -12,6 +12,7 @@
  */
 /* Includes ------------------------------------------------------------------*/
 #include "dvc_remotecontrol.hpp"
+#include "alg_crc.hpp"
 
 /* Typedef -------------------------------------------------------------------*/
 
@@ -128,13 +129,13 @@ fp32 RemoteControl::applyStickDeadZone(fp32 stickValue)
 }
 
 /******************************************************************************
- *                           Dr16RemoteControl类实现
+ *                           DR16RemoteControl类实现
  ******************************************************************************/
 
 /**
  * @brief 构造函数，初始化遥控器接收数据地址指针和连接状态
  */
-Dr16RemoteControl::Dr16RemoteControl(fp32 stickDeadZone)
+DR16RemoteControl::DR16RemoteControl(fp32 stickDeadZone)
     : RemoteControl(stickDeadZone),
       m_originalRxDataPointer(nullptr),
       m_rightStickX(0.0f),
@@ -171,9 +172,9 @@ Dr16RemoteControl::Dr16RemoteControl(fp32 stickDeadZone)
  * @param data DR16遥控器接收数据指针
  * @note 本函数不解码遥控器数据
  */
-void Dr16RemoteControl::receiveRxDataFromISR(const uint8_t *data)
+void DR16RemoteControl::receiveRxDataFromISR(const uint8_t *data)
 {
-    m_originalRxDataPointer = (DR16OriginalUARTRxData *)data;
+    m_originalRxDataPointer = (DR16OriginalRxData *)data;
     m_uartRxTimestamp       = HAL_GetTick(); // 更新接收时间戳
     m_isConnected           = true;          // 接收到数据则认为遥控器连接正常
     m_isDecodeCompleted     = false;         // 标志解码未完成
@@ -183,7 +184,7 @@ void Dr16RemoteControl::receiveRxDataFromISR(const uint8_t *data)
  * @brief 接收DR16遥控器数据后解码数据, 判断遥控器连接状态
  * @note 本函数在使用get函数获取遥控器数据时自动调用
  */
-void Dr16RemoteControl::decodeRxData()
+void DR16RemoteControl::decodeRxData()
 {
     // 判断遥控器连接状态，若使用的数据过时超过100ms则认为遥控器断开
     if (HAL_GetTick() - m_uartRxTimestamp > 100 || m_originalRxDataPointer == nullptr) {
@@ -208,7 +209,7 @@ void Dr16RemoteControl::decodeRxData()
  * @note 使用get方法获取按键状态前请先调用本函数
  * @note 建议在每个控制循环的开头调用一次，且一个控制循环内只调用一次，以保证控制循环中获取的事件状态一致
  */
-void Dr16RemoteControl::updateEvent()
+void DR16RemoteControl::updateEvent()
 {
     if (m_originalRxDataPointer == nullptr) return;
     m_lastRightSwitchStatus   = m_rightSwitchStatus;
@@ -435,7 +436,7 @@ void ET08ARemoteControl::updateEvent()
             m_switchSD = SwitchStatus2Pos::SWITCH_DOWN;
         }
     }
-    m_eventSC      = judgeSwitchEvent(m_switchSC, m_lastSwitchSC);
+    m_eventSC = judgeSwitchEvent(m_switchSC, m_lastSwitchSC);
     m_eventSD = judgeSwitchEvent(m_switchSD, m_lastSwitchSD);
 }
 
@@ -491,4 +492,162 @@ void ET08ARemoteControl::parseET08AProtocol(const uint8_t *buffer, ET08AProtocol
     out.trimmerT2 = getChannelValue(m_config.trimmerT2);
     out.trimmerT3 = getChannelValue(m_config.trimmerT3);
     out.trimmerT4 = getChannelValue(m_config.trimmerT4);
+}
+
+/******************************************************************************
+ *                         VT13RemoteControl类实现
+ ******************************************************************************/
+
+/**
+ * @brief 构造函数，初始化所有成员变量
+ */
+VT13RemoteControl::VT13RemoteControl(fp32 stickDeadZone)
+    : RemoteControl(stickDeadZone),
+      m_originalRxDataPointer(nullptr),
+      m_rightStickX(0.0f),
+      m_rightStickY(0.0f),
+      m_leftStickX(0.0f),
+      m_leftStickY(0.0f),
+      m_scrollWheel(0.0f),
+      m_modeSwitchStatus(SwitchStatus3Pos::SWITCH_ERROR),
+      m_lastModeSwitchStatus(SwitchStatus3Pos::SWITCH_ERROR),
+      m_modeSwitchEvent(SwitchEvent3Pos::SWITCH_EVENT_NO_UPDATE_ERROR),
+      m_pauseKeyStatus(KeyStatus::KEY_ERROR),
+      m_lastPauseKeyStatus(KeyStatus::KEY_ERROR),
+      m_pauseKeyEvent(KeyEvent::KEY_EVENT_NO_UPDATE_ERROR),
+      m_fn1KeyStatus(KeyStatus::KEY_ERROR),
+      m_lastFn1KeyStatus(KeyStatus::KEY_ERROR),
+      m_fn1KeyEvent(KeyEvent::KEY_EVENT_NO_UPDATE_ERROR),
+      m_fn2KeyStatus(KeyStatus::KEY_ERROR),
+      m_lastFn2KeyStatus(KeyStatus::KEY_ERROR),
+      m_fn2KeyEvent(KeyEvent::KEY_EVENT_NO_UPDATE_ERROR),
+      m_triggerKeyStatus(KeyStatus::KEY_ERROR),
+      m_lastTriggerKeyStatus(KeyStatus::KEY_ERROR),
+      m_triggerKeyEvent(KeyEvent::KEY_EVENT_NO_UPDATE_ERROR),
+      m_mouseXSpeed(0.0f),
+      m_mouseYSpeed(0.0f),
+      m_mouseWheelSpeed(0.0f),
+      m_mouseLeftKeyStatus(KeyStatus::KEY_ERROR),
+      m_lastMouseLeftKeyStatus(KeyStatus::KEY_ERROR),
+      m_mouseLeftKeyEvent(KeyEvent::KEY_EVENT_NO_UPDATE_ERROR),
+      m_mouseRightKeyStatus(KeyStatus::KEY_ERROR),
+      m_lastMouseRightKeyStatus(KeyStatus::KEY_ERROR),
+      m_mouseRightKeyEvent(KeyEvent::KEY_EVENT_NO_UPDATE_ERROR),
+      m_mouseMiddleKeyStatus(KeyStatus::KEY_ERROR),
+      m_lastMouseMiddleKeyStatus(KeyStatus::KEY_ERROR),
+      m_mouseMiddleKeyEvent(KeyEvent::KEY_EVENT_NO_UPDATE_ERROR)
+{
+    for (uint8_t i = 0; i < static_cast<uint8_t>(KeyboardKeyIndex::KEY_TOTAL_NUMBER); i++) {
+        m_keyboardKeyStatus[i]     = KeyStatus::KEY_ERROR;
+        m_lastKeyboardKeyStatus[i] = KeyStatus::KEY_ERROR;
+        m_keyboardKeyEvent[i]      = KeyEvent::KEY_EVENT_NO_UPDATE_ERROR;
+    }
+}
+
+/**
+ * @brief 从中断中获取VT13图传遥控器接收数据地址，更新相关标志位
+ * @param data VT13图传遥控器接收数据指针
+ * @note 内部校验帧头(0xA9 0x53)，不匹配时直接返回不做处理
+ * @note 本函数不解码遥控器数据
+ */
+void VT13RemoteControl::receiveRxDataFromISR(const uint8_t *data)
+{
+    if (data[0] != SOF_1 || data[1] != SOF_2) return;
+    m_originalRxDataPointer = (VT13OriginalRxData *)data;
+    m_uartRxTimestamp       = HAL_GetTick();
+    m_isConnected           = true;
+    m_isDecodeCompleted     = false;
+}
+
+/**
+ * @brief 接收VT13图传遥控器数据后解码数据, 判断连接状态
+ * @note 本函数在使用get函数获取遥控器数据时自动调用
+ */
+void VT13RemoteControl::decodeRxData()
+{
+    // 判断连接状态，若数据过时超过100ms则认为断开
+    if (HAL_GetTick() - m_uartRxTimestamp > 100 || m_originalRxDataPointer == nullptr) {
+        m_isConnected = false;
+        return;
+    }
+    // 每次接收数据仅解码一次
+    if (m_isDecodeCompleted) return;
+    // CRC16校验
+    if (!CRCCalculator::verifyCRC16((const uint8_t *)m_originalRxDataPointer, FRAME_SIZE)) {
+        return;
+    }
+    m_rightStickX       = (fp32)(m_originalRxDataPointer->Channel_0 - 1024) / 660.0f;
+    m_rightStickY       = (fp32)(m_originalRxDataPointer->Channel_1 - 1024) / 660.0f;
+    m_leftStickY        = (fp32)(m_originalRxDataPointer->Channel_2 - 1024) / 660.0f;
+    m_leftStickX        = (fp32)(m_originalRxDataPointer->Channel_3 - 1024) / 660.0f;
+    m_scrollWheel       = (fp32)(m_originalRxDataPointer->Wheel - 1024) / 660.0f;
+    m_mouseXSpeed       = (fp32)(m_originalRxDataPointer->Mouse_X / 32768.0f);
+    m_mouseYSpeed       = (fp32)(m_originalRxDataPointer->Mouse_Y / 32768.0f);
+    m_mouseWheelSpeed   = (fp32)(m_originalRxDataPointer->Mouse_Z / 32768.0f);
+    m_isDecodeCompleted = true;
+}
+
+/**
+ * @brief 更新所有按键和拨杆的跳变事件并缓存
+ * @note 使用get方法获取按键状态前请先调用本函数
+ * @note 建议在每个控制循环的开头调用一次，且一个控制循环内只调用一次，以保证控制循环中获取的事件状态一致
+ */
+void VT13RemoteControl::updateEvent()
+{
+    if (m_originalRxDataPointer == nullptr) return;
+    // 档位开关
+    m_lastModeSwitchStatus = m_modeSwitchStatus;
+    m_modeSwitchStatus     = mapModeSwitch(m_originalRxDataPointer->Mode_Switch);
+    m_modeSwitchEvent      = judgeSwitchEvent(m_modeSwitchStatus, m_lastModeSwitchStatus);
+    // 暂停键
+    m_lastPauseKeyStatus = m_pauseKeyStatus;
+    m_pauseKeyStatus     = (KeyStatus)m_originalRxDataPointer->Pause;
+    m_pauseKeyEvent      = judgeKeyEvent(m_pauseKeyStatus, m_lastPauseKeyStatus);
+    // 自定义按键(左)
+    m_lastFn1KeyStatus = m_fn1KeyStatus;
+    m_fn1KeyStatus     = (KeyStatus)m_originalRxDataPointer->Fn_1;
+    m_fn1KeyEvent      = judgeKeyEvent(m_fn1KeyStatus, m_lastFn1KeyStatus);
+    // 自定义按键(右)
+    m_lastFn2KeyStatus = m_fn2KeyStatus;
+    m_fn2KeyStatus     = (KeyStatus)m_originalRxDataPointer->Fn_2;
+    m_fn2KeyEvent      = judgeKeyEvent(m_fn2KeyStatus, m_lastFn2KeyStatus);
+    // 瞄准键
+    m_lastTriggerKeyStatus = m_triggerKeyStatus;
+    m_triggerKeyStatus     = (KeyStatus)m_originalRxDataPointer->Trigger;
+    m_triggerKeyEvent      = judgeKeyEvent(m_triggerKeyStatus, m_lastTriggerKeyStatus);
+    // 鼠标按键
+    m_lastMouseLeftKeyStatus   = m_mouseLeftKeyStatus;
+    m_mouseLeftKeyStatus       = (KeyStatus)m_originalRxDataPointer->Mouse_Left;
+    m_mouseLeftKeyEvent        = judgeKeyEvent(m_mouseLeftKeyStatus, m_lastMouseLeftKeyStatus);
+    m_lastMouseRightKeyStatus  = m_mouseRightKeyStatus;
+    m_mouseRightKeyStatus      = (KeyStatus)m_originalRxDataPointer->Mouse_Right;
+    m_mouseRightKeyEvent       = judgeKeyEvent(m_mouseRightKeyStatus, m_lastMouseRightKeyStatus);
+    m_lastMouseMiddleKeyStatus = m_mouseMiddleKeyStatus;
+    m_mouseMiddleKeyStatus     = (KeyStatus)m_originalRxDataPointer->Mouse_Middle;
+    m_mouseMiddleKeyEvent      = judgeKeyEvent(m_mouseMiddleKeyStatus, m_lastMouseMiddleKeyStatus);
+    // 键盘按键
+    for (uint8_t keyIndex = 0; keyIndex < static_cast<uint8_t>(KeyboardKeyIndex::KEY_TOTAL_NUMBER); keyIndex++) {
+        m_lastKeyboardKeyStatus[keyIndex] = m_keyboardKeyStatus[keyIndex];
+        m_keyboardKeyStatus[keyIndex]     = (KeyStatus)(m_originalRxDataPointer->Keyboard_Key >> keyIndex & 0x01);
+        m_keyboardKeyEvent[keyIndex]      = judgeKeyEvent(m_keyboardKeyStatus[keyIndex], m_lastKeyboardKeyStatus[keyIndex]);
+    }
+}
+
+/**
+ * @brief 档位原始值到SwitchStatus3Pos的映射
+ * @param raw 档位原始值 C:0 N:1 S:2
+ * @return SwitchStatus3Pos 对应的拨杆状态
+ */
+RemoteControl::SwitchStatus3Pos VT13RemoteControl::mapModeSwitch(uint8_t raw)
+{
+    switch (raw) {
+        case 0:
+            return SwitchStatus3Pos::SWITCH_UP; // C档
+        case 1:
+            return SwitchStatus3Pos::SWITCH_MIDDLE; // N档
+        case 2:
+            return SwitchStatus3Pos::SWITCH_DOWN; // S档
+        default:
+            return SwitchStatus3Pos::SWITCH_ERROR;
+    }
 }

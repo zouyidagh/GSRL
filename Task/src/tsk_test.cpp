@@ -13,8 +13,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "dvc_motor.hpp"
 #include "dvc_remotecontrol.hpp"
-#include "drv_spi.h"
-#include "dvc_imu.hpp"
+#include "drv_uart.h"
 
 /* Define --------------------------------------------------------------------*/
 // PID
@@ -29,7 +28,7 @@ SimplePID myPID(SimplePID::PID_POSITION, param);
 // Motor
 MotorDM4310 motor(1, 0, 3.1415926f, 40, 15, &myPID);
 // RemoteControl
-Dr16RemoteControl dr16;
+DR16RemoteControl dr16;
 
 /* Variables -----------------------------------------------------------------*/
 
