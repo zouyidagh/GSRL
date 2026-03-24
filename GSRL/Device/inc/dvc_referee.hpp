@@ -39,6 +39,7 @@ public:
     static constexpr uint16_t CMD_ID_SIZE          = 2;
     static constexpr uint16_t CRC16_SIZE           = 2;
     static constexpr uint16_t HEADER_CRC8_CMD_SIZE = HEADER_SIZE + CMD_ID_SIZE;
+    static constexpr uint32_t RX_TIMEOUT_MS        = 500; // 裁判系统掉线超时阈值(ms)
 
     /* ======================== 命令ID枚举 ======================== */
     enum class CmdID : uint16_t {
@@ -522,8 +523,15 @@ public:
 
     /**
      * @brief 检查裁判系统是否连接
+     * @note 基于UART接收时间戳进行超时检测
      */
-    bool isConnected() const { return m_isConnected; }
+    bool isConnected()
+    {
+        if (HAL_GetTick() - m_uartRxTimestamp > RX_TIMEOUT_MS) {
+            m_isConnected = false;
+        }
+        return m_isConnected;
+    }
 
     /* ======================== 数据访问接口 ======================== */
 
