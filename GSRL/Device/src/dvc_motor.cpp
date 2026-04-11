@@ -700,6 +700,106 @@ void MotorDM4310::setMotorZeroPosition()
 }
 
 /******************************************************************************
+ *                        达妙一控四固件电机类实现
+ ******************************************************************************/
+
+/**
+ * @brief 达妙一控四固件电机类构造函数, 用于初始化电机参数
+ * @param dmMotorID 达妙电机ID, 取值范围 [1, 8]
+ * @param controller 电机绑定控制器
+ * @param encoderOffset 电机编码器偏移量, 默认为0
+ * @note 达妙一控四电机ID对应关系如下:
+ * | 电机ID |   1   |   2   |   3   |   4   |   5   |   6   |   7   |   8   |
+ * | 反馈ID | 0x301 | 0x302 | 0x303 | 0x304 | 0x305 | 0x306 | 0x307 | 0x308 |
+ * | 控制ID |             0x3FE             |             0x4FE             |
+ */
+MotorDMmulti::MotorDMmulti(uint8_t dmMotorID, Controller *controller, uint16_t encoderOffset)
+    : Motor(dmMotorID <= 4 ? 0x3FE : 0x4FE,
+            0x300u + dmMotorID,
+            controller,
+            encoderOffset),
+      m_dmMotorID(dmMotorID),
+      m_currentRPMSpeed(0),
+      m_errorState(0)
+{
+    m_encoderHistory[0] = 0;
+    m_encoderHistory[1] = 0;
+}
+
+/**
+ * @brief 将控制器输出转换为达妙一控四电机CAN控制数据
+ * @note 数据段为小端字节序, 与大疆GM6020的大端字节序相反
+ */
+void MotorDMmulti::convertControllerOutputToMotorControlData()
+{
+    int16_t giveControlValue = (int16_t)m_controllerOutput; // 控制电流标幺值
+    uint8_t offset           = (uint8_t)(((m_dmMotorID - 1) & 0x3) * 2);
+    m_motorControlData[offset]     = (uint8_t)(giveControlValue & 0xFF);        // 低 8 位
+    m_motorControlData[offset + 1] = (uint8_t)((giveControlValue >> 8) & 0xFF); // 高 8 位
+}
+
+/**
+ * @brief 解析达妙一控四电机CAN反馈数据核心函数
+ * @param rxMessage CAN接收消息
+ * @return true ID匹配, 解析成功
+ * @return false ID不匹配, 解析失败
+ * @note 内部函数, 被decodeCanRxMessageFromQueue或decodeCanRxMessageFromISR调用
+ * @note 反馈帧格式: D[0:1]位置(0~8191), D[2:3]速度(RPM*100), D[4:5]扭矩电流(mA), D[6]线圈温度, D[7]错误状态
+ */
+bool MotorDMmulti::decodeCanRxMessage(const can_rx_message_t &rxMessage)
+{
+    if (rxMessage.header.StdId != m_motorFeedbackMessageID) return false;
+
+    m_encoderHistory[1] = m_encoderHistory[0];
+    m_encoderHistory[0] = (uint16_t)((((rxMessage.data[0] << 8) | rxMessage.data[1]) - m_encoderOffset) & 0x1FFF);
+    m_currentAngle      = (fp32)m_encoderHistory[0] * 2.0f * MATH_PI / 8192.0f;
+
+    int16_t rawSpeed100      = (int16_t)((rxMessage.data[2] << 8) | rxMessage.data[3]);
+    m_currentRPMSpeed        = (int16_t)(rawSpeed100 / 100);                          // 真实RPM
+    m_currentAngularVelocity = (fp32)rawSpeed100 * (2.0f * MATH_PI / 60.0f) / 100.0f; // 保留精度
+
+    m_currentTorqueCurrent = (int16_t)((rxMessage.data[4] << 8) | rxMessage.data[5]); // mA
+    m_temperature          = (int8_t)rxMessage.data[6];                               // ℃
+    m_errorState           = rxMessage.data[7];
+    return true;
+}
+
+/**
+ * @brief 获取达妙电机ID
+ * @return uint8_t 达妙电机ID
+ */
+uint8_t MotorDMmulti::getDmMotorID() const
+{
+    return m_dmMotorID;
+}
+
+/**
+ * @brief 获取达妙电机错误状态
+ * @return uint8_t 反馈帧D[7]错误状态字节, 具体含义详见达妙错误状态说明书
+ */
+uint8_t MotorDMmulti::getErrorState() const
+{
+    return m_errorState;
+}
+
+/**
+ * @brief 达妙一控四电机加法运算符重载, 用于合并同控制ID下多个电机的CAN控制数据
+ * @param otherMotor 另一个同控制ID的达妙一控四电机
+ */
+MotorDMmulti MotorDMmulti::operator+(const MotorDMmulti &otherMotor) const
+{
+    if (m_motorControlMessageID != otherMotor.m_motorControlMessageID) {
+        return *this;
+    }
+
+    MotorDMmulti combineMotor                   = *this;
+    uint8_t offset                              = (uint8_t)(((otherMotor.m_dmMotorID - 1) & 0x3) * 2);
+    combineMotor.m_motorControlData[offset]     = otherMotor.m_motorControlData[offset];
+    combineMotor.m_motorControlData[offset + 1] = otherMotor.m_motorControlData[offset + 1];
+    return combineMotor;
+}
+
+/******************************************************************************
  *                           瓴控MG系列电机类实现
  ******************************************************************************/
 

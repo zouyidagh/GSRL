@@ -201,6 +201,33 @@ protected:
 using MotorDM2325 = MotorDM4310;
 
 /**
+ * @brief 达妙一控四固件电机类
+ * @details 该类实现了Motor类的纯虚函数，用于控制达妙"一控四"固件下的电机
+ * @details 与大疆GM6020的一控多模式类似，同一条控制帧上可承载4个电机的控制电流
+ * @note 控制帧: 电机ID 1~4 -> 0x3FE, 电机ID 5~8 -> 0x4FE, 数据段为小端字节序
+ * @note 反馈帧: 反馈ID = 0x300 + 电机ID, 数据段为大端字节序
+ * @note 控制电流为标幺值，含义参见达妙力位混控模式中的 i_des 说明
+ */
+class MotorDMmulti : public Motor
+{
+protected:
+    uint8_t m_dmMotorID;          // 达妙电机ID [1,8]
+    uint16_t m_encoderHistory[2]; // 0:当前值 1:上一次值
+    int16_t m_currentRPMSpeed;    // 电机速度, 单位RPM(已除以100后的真实值)
+    uint8_t m_errorState;         // 反馈帧D[7]错误状态字节, 具体含义详见达妙错误状态说明书
+
+public:
+    MotorDMmulti(uint8_t dmMotorID, Controller *controller, uint16_t encoderOffset = 0);
+    uint8_t getDmMotorID() const;
+    uint8_t getErrorState() const;
+    MotorDMmulti operator+(const MotorDMmulti &otherMotor) const;
+
+protected:
+    bool decodeCanRxMessage(const can_rx_message_t &rxMessage) override;
+    void convertControllerOutputToMotorControlData() override;
+};
+
+/**
  * @brief 瓴控MG系列电机类
  * @details 该类实现了Motor类的纯虚函数，用于控制瓴控MG系列电机
  */
