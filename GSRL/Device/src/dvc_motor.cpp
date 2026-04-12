@@ -1051,6 +1051,7 @@ MotorDeepJ60::MotorDeepJ60(uint8_t jointID, Controller *controller)
       m_currentTorqueNm(0.0f),
       m_mosfetTemperature(0),
       m_motorTemperature(0),
+      m_pendingErrorReset(false),
       m_useHardwareMitMode(false),
       m_mitTargetPosition(0.0f),
       m_mitTargetVelocity(0.0f),
@@ -1091,7 +1092,7 @@ void MotorDeepJ60::clearError()
 {
     // 复位硬件状态为 DISABLED，下一次 convert 会先发 ERROR_RESET 再按 intent 走 ENABLE 流程。
     // 这里直接构造一次 ERROR_RESET header，由 convert 中的状态判断兜底。
-    buildErrorResetFrame();
+    m_pendingErrorReset = true;
     m_state = J60_DISABLED;
 }
 
@@ -1114,6 +1115,7 @@ void MotorDeepJ60::hardwareMitControl(fp32 targetPositionRad, fp32 targetVelocit
     m_mitTargetTorque    = targetTorqueNm;
     m_mitKp              = kp;
     m_mitKd              = kd;
+    convertControllerOutputToMotorControlData();
 }
 
 /**
@@ -1214,6 +1216,13 @@ void MotorDeepJ60::convertControllerOutputToMotorControlData()
         m_state = J60_DISABLED;
     }
 
+    // 一次性 ERROR_RESET 帧插入 (clearError() 设置)
+    if (m_pendingErrorReset) {
+        m_pendingErrorReset = false;
+        buildErrorResetFrame();
+        return;
+    }
+
     if (m_intent == INTENT_DISABLE) {
         buildDisableFrame();
         return;
@@ -1305,15 +1314,21 @@ bool MotorDeepJ60::decodeCanRxMessage(const can_rx_message_t &rxMessage)
             m_currentRevolutions     = decodedPosRad / (2.0f * MATH_PI);
             m_currentAngularVelocity = decodedVelRadps;
             m_currentTorqueNm        = decodedTorNm;
-            // 兼容基类 getCurrentTorqueCurrent()：以 mNm 存储，±40 Nm → ±40000，在 int16 范围内
-            m_currentTorqueCurrent = (int16_t)(decodedTorNm * 1000.0f);
+            // 兼容基类 getCurrentTorqueCurrent()：以 mNm 存储，钳位到 int16 范围 (±32767)；
+            // 精确扭矩请使用 getCurrentTorqueNm()。
+            fp32 torqueMnm = decodedTorNm * 1000.0f;
+            GSRLMath::constrain(torqueMnm, -32767.0f, 32767.0f);
+            m_currentTorqueCurrent = (int16_t)torqueMnm;
 
+            // 温度：J60 专有成员用 int16_t 存完整范围，基类 m_temperature (int8_t) 钳位
+            fp32 tempClamped = decodedTempC;
+            GSRLMath::constrain(tempClamped, -128.0f, 127.0f);
             if (tempFlg == 1) {
-                m_motorTemperature = (int8_t)decodedTempC;
-                m_temperature      = m_motorTemperature;
+                m_motorTemperature = (int16_t)decodedTempC;
+                m_temperature      = (int8_t)tempClamped;
             } else {
-                m_mosfetTemperature = (int8_t)decodedTempC;
-                m_temperature       = m_mosfetTemperature;
+                m_mosfetTemperature = (int16_t)decodedTempC;
+                m_temperature       = (int8_t)tempClamped;
             }
             return true;
         }

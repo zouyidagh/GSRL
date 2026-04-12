@@ -287,12 +287,13 @@ public:
     };
 
 protected:
-    uint8_t m_jointID;          // 关节 ID (1~15)
-    J60State m_state;           // 实际硬件状态 (由反馈帧更新)
-    J60Intent m_intent;         // 用户意图
-    fp32 m_currentTorqueNm;     // 反馈扭矩 (Nm)
-    int8_t m_mosfetTemperature; // MOSFET 温度 (℃)
-    int8_t m_motorTemperature;  // 电机温度 (℃)
+    uint8_t m_jointID;           // 关节 ID (1~15)
+    J60State m_state;            // 实际硬件状态 (由反馈帧更新)
+    J60Intent m_intent;          // 用户意图
+    fp32 m_currentTorqueNm;      // 反馈扭矩 (Nm)
+    int16_t m_mosfetTemperature; // MOSFET 温度 (℃)，协议范围 [-20, 200]
+    int16_t m_motorTemperature;  // 电机温度 (℃)，协议范围 [-20, 200]
+    bool m_pendingErrorReset;    // clearError() 设置，convert 中消费
     // 硬件 MIT 模式缓存 (hardwareMitControl 使用)
     bool m_useHardwareMitMode;
     fp32 m_mitTargetPosition; // rad, [-40, 40]
@@ -334,8 +335,8 @@ public:
     // 状态查询
     J60State getJ60State() const { return m_state; }
     fp32 getCurrentTorqueNm() const { return m_currentTorqueNm; }
-    int8_t getMosfetTemperature() const { return m_mosfetTemperature; }
-    int8_t getMotorTemperature() const { return m_motorTemperature; }
+    int16_t getMosfetTemperature() const { return m_mosfetTemperature; }
+    int16_t getMotorTemperature() const { return m_motorTemperature; }
     uint8_t getJointID() const { return m_jointID; }
 
 protected:
@@ -353,9 +354,6 @@ protected:
     void buildErrorResetFrame();
     void buildControlFrame(fp32 pRad, fp32 vRadps, fp32 tNm, fp32 kp, fp32 kd);
 };
-
-// 型别别名，供用户短写
-using MotorJ60 = MotorDeepJ60;
 
 /* Exported constants --------------------------------------------------------*/
 
