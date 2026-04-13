@@ -176,7 +176,7 @@ public:
         uint16_t allyBaseHP;    // 己方基地
     };
 
-    // 0x0101 场地事件 (4字节) - V1.3.0修订bit定义
+    // 0x0101 场地事件 (4字节)
     // bit 0:   己方补给区占领状态
     // bit 1:   保留
     // bit 2:   己方补给区占领状态(仅RMUL)
@@ -332,7 +332,7 @@ public:
         uint16_t cmdSource;    // 信息来源ID
     };
 
-    // 0x0305 小地图接收雷达数据 (48字节) - V1.3.0修订，新增己方机器人坐标及空中机器人字段
+    // 0x0305 小地图接收雷达数据 (48字节)
     struct MapRobotData {
         // 对方机器人坐标，单位：cm；x/y均为0时视为未发送此机器人坐标
         uint16_t opponentHeroPositionX;
