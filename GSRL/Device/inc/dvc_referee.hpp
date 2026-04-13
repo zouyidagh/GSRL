@@ -8,7 +8,7 @@
  * Copyright (c) 2026 GMaster
  * All rights reserved.
  *
- * @note 基于2026高校系列赛通信协议V1.2.0
+ * @note 基于2026高校系列赛通信协议V1.3.0
  *
  ******************************************************************************
  */
@@ -177,6 +177,20 @@ public:
     };
 
     // 0x0101 场地事件 (4字节)
+    // bit 0:   己方补给区占领状态
+    // bit 1:   保留
+    // bit 2:   己方补给区占领状态(仅RMUL)
+    // bit 3-4: 己方小能量机关激活状态 (0:未激活 1:已激活 2:正在激活)
+    // bit 5-6: 己方大能量机关激活状态 (0:未激活 1:已激活 2:正在激活)
+    // bit 7-8: 己方中央高地占领状态 (1:被己方占领 2:被对方占领)
+    // bit 9-10: 己方梯形高地占领状态 (1:已占领)
+    // bit 11-19: 对方飞镖最后击中己方前哨站或基地的时间(0-420s)
+    // bit 20-22: 对方飞镖最后击中目标 (0:默认 1:前哨站 2:基地固定 3:基地随机固定 4:基地随机移动 5:基地末端移动)
+    // bit 23-24: 中心增益点占领状态 (0:未占领 1:己方 2:对方 3:双方)(仅RMUL)
+    // bit 25-26: 己方堡垒增益点占领状态 (0:未占领 1:己方 2:对方 3:双方)
+    // bit 27-28: 己方前哨站增益点占领状态 (0:未占领 1:己方 2:对方)
+    // bit 29:   己方基地增益点占领状态 (1:已占领)
+    // bit 30-31: 保留
     struct FieldEventsData {
         uint32_t eventData;
     };
@@ -309,30 +323,43 @@ public:
         uint8_t userData[112];
     };
 
-    // 0x0303 小地图下发数据 (15字节)
+    // 0x0303 小地图下发数据 (12字节)
     struct MapCommandData {
         float targetPositionX; // 目标x坐标(m)，发送目标ID时为0
         float targetPositionY; // 目标y坐标(m)，发送目标ID时为0
         uint8_t cmdKeyboard;   // 键盘按键
         uint8_t targetRobotID; // 对方机器人ID，发送坐标时为0
         uint16_t cmdSource;    // 信息来源ID
-        uint8_t padding;
     };
 
-    // 0x0305 小地图接收雷达数据 (24字节)
+    // 0x0305 小地图接收雷达数据 (48字节)
     struct MapRobotData {
-        uint16_t heroPositionX;
-        uint16_t heroPositionY;
-        uint16_t engineerPositionX;
-        uint16_t engineerPositionY;
-        uint16_t infantry3PositionX;
-        uint16_t infantry3PositionY;
-        uint16_t infantry4PositionX;
-        uint16_t infantry4PositionY;
-        uint16_t reserved1;
-        uint16_t reserved2;
-        uint16_t sentryPositionX;
-        uint16_t sentryPositionY;
+        // 对方机器人坐标，单位：cm；x/y均为0时视为未发送此机器人坐标
+        uint16_t opponentHeroPositionX;
+        uint16_t opponentHeroPositionY;
+        uint16_t opponentEngineerPositionX;
+        uint16_t opponentEngineerPositionY;
+        uint16_t opponentInfantry3PositionX;
+        uint16_t opponentInfantry3PositionY;
+        uint16_t opponentInfantry4PositionX;
+        uint16_t opponentInfantry4PositionY;
+        uint16_t opponentAerialPositionX;
+        uint16_t opponentAerialPositionY;
+        uint16_t opponentSentryPositionX;
+        uint16_t opponentSentryPositionY;
+        // 己方机器人坐标，单位：cm；x/y均为0时视为未发送此机器人坐标
+        uint16_t allyHeroPositionX;
+        uint16_t allyHeroPositionY;
+        uint16_t allyEngineerPositionX;
+        uint16_t allyEngineerPositionY;
+        uint16_t allyInfantry3PositionX;
+        uint16_t allyInfantry3PositionY;
+        uint16_t allyInfantry4PositionX;
+        uint16_t allyInfantry4PositionY;
+        uint16_t allyAerialPositionX;
+        uint16_t allyAerialPositionY;
+        uint16_t allySentryPositionX;
+        uint16_t allySentryPositionY;
     };
 
     // 0x0306 键鼠遥操作数据 (8字节)
