@@ -323,14 +323,13 @@ public:
         uint8_t userData[112];
     };
 
-    // 0x0303 小地图下发数据 (15字节)
+    // 0x0303 小地图下发数据 (12字节)
     struct MapCommandData {
         float targetPositionX; // 目标x坐标(m)，发送目标ID时为0
         float targetPositionY; // 目标y坐标(m)，发送目标ID时为0
         uint8_t cmdKeyboard;   // 键盘按键
         uint8_t targetRobotID; // 对方机器人ID，发送坐标时为0
         uint16_t cmdSource;    // 信息来源ID
-        uint8_t padding;
     };
 
     // 0x0305 小地图接收雷达数据 (48字节) - V1.3.0修订，新增己方机器人坐标及空中机器人字段
