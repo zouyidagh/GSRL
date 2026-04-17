@@ -533,26 +533,25 @@ uint8_t MotorGM6020::getDjiMotorID() const
 }
 
 /**
- * @brief 大疆电机加法运算符重载，用于合并CAN控制数据
+ * @brief 合并两个同控制ID的大疆电机CAN控制数据, 同时触发双方掉线检测
  * @param otherMotor 另一个同控制ID的大疆电机
+ * @return const uint8_t* 合并后的8字节CAN控制数据
+ * @note 返回的指针指向内部静态缓冲区, 下次调用会覆盖
  */
-MotorGM6020 MotorGM6020::operator+(const MotorGM6020 &otherMotor) const
+const uint8_t *MotorGM6020::getMergedControlData(MotorGM6020 &otherMotor)
 {
+    const uint8_t *selfData  = this->getMotorControlData();
+    const uint8_t *otherData = otherMotor.getMotorControlData();
+
     if (m_motorControlMessageID != otherMotor.m_motorControlMessageID) {
-        return *this;
+        return selfData;
     }
 
-    MotorGM6020 combineMotor = *this;
-    if (otherMotor.m_djiMotorID < 5) {
-        uint8_t offset                              = otherMotor.m_djiMotorID * 2 - 2;
-        combineMotor.m_motorControlData[offset]     = otherMotor.m_motorControlData[offset];
-        combineMotor.m_motorControlData[offset + 1] = otherMotor.m_motorControlData[offset + 1];
-    } else {
-        uint8_t offset                              = otherMotor.m_djiMotorID * 2 - 10;
-        combineMotor.m_motorControlData[offset]     = otherMotor.m_motorControlData[offset];
-        combineMotor.m_motorControlData[offset + 1] = otherMotor.m_motorControlData[offset + 1];
-    }
-    return combineMotor;
+    memcpy(m_mergedData, selfData, 8);
+    uint8_t offset             = (uint8_t)(((otherMotor.m_djiMotorID - 1) & 0x3) * 2);
+    m_mergedData[offset]     = otherData[offset];
+    m_mergedData[offset + 1] = otherData[offset + 1];
+    return m_mergedData;
 }
 
 /******************************************************************************
@@ -783,20 +782,25 @@ uint8_t MotorDMmulti::getErrorState() const
 }
 
 /**
- * @brief 达妙一控四电机加法运算符重载, 用于合并同控制ID下多个电机的CAN控制数据
+ * @brief 合并两个同控制ID的一控四固件达妙电机CAN控制数据, 同时触发双方掉线检测
  * @param otherMotor 另一个同控制ID的达妙一控四电机
+ * @return const uint8_t* 合并后的8字节CAN控制数据
+ * @note 返回的指针指向内部静态缓冲区, 下次调用会覆盖
  */
-MotorDMmulti MotorDMmulti::operator+(const MotorDMmulti &otherMotor) const
+const uint8_t *MotorDMmulti::getMergedControlData(MotorDMmulti &otherMotor)
 {
+    const uint8_t *selfData  = this->getMotorControlData();
+    const uint8_t *otherData = otherMotor.getMotorControlData();
+
     if (m_motorControlMessageID != otherMotor.m_motorControlMessageID) {
-        return *this;
+        return selfData;
     }
 
-    MotorDMmulti combineMotor                   = *this;
-    uint8_t offset                              = (uint8_t)(((otherMotor.m_dmMotorID - 1) & 0x3) * 2);
-    combineMotor.m_motorControlData[offset]     = otherMotor.m_motorControlData[offset];
-    combineMotor.m_motorControlData[offset + 1] = otherMotor.m_motorControlData[offset + 1];
-    return combineMotor;
+    memcpy(m_mergedData, selfData, 8);
+    uint8_t offset             = (uint8_t)(((otherMotor.m_dmMotorID - 1) & 0x3) * 2);
+    m_mergedData[offset]     = otherData[offset];
+    m_mergedData[offset + 1] = otherData[offset + 1];
+    return m_mergedData;
 }
 
 /******************************************************************************

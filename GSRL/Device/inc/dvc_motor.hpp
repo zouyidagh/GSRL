@@ -118,11 +118,12 @@ protected:
     uint8_t m_djiMotorID;         // 大疆电机ID，6020电机对应1~7
     uint16_t m_encoderHistory[2]; // 0:当前值 1:上一次值
     int16_t m_currentRPMSpeed;    // RPM
+    uint8_t m_mergedData[8];      // getMergedControlData 输出缓冲区
 
 public:
     MotorGM6020(uint8_t dji6020MotorID, Controller *controller, uint16_t encoderOffset = 0);
     uint8_t getDjiMotorID() const;
-    MotorGM6020 operator+(const MotorGM6020 &otherMotor) const;
+    const uint8_t *getMergedControlData(MotorGM6020 &otherMotor);
 
 protected:
     bool decodeCanRxMessage(const can_rx_message_t &rxMessage) override;
@@ -215,12 +216,13 @@ protected:
     uint16_t m_encoderHistory[2]; // 0:当前值 1:上一次值
     int16_t m_currentRPMSpeed;    // 电机速度, 单位RPM(已除以100后的真实值)
     uint8_t m_errorState;         // 反馈帧D[7]错误状态字节, 具体含义详见达妙错误状态说明书
+    uint8_t m_mergedData[8];      // getMergedControlData 输出缓冲区
 
 public:
     MotorDMmulti(uint8_t dmMotorID, Controller *controller, uint16_t encoderOffset = 0);
     uint8_t getDmMotorID() const;
     uint8_t getErrorState() const;
-    MotorDMmulti operator+(const MotorDMmulti &otherMotor) const;
+    const uint8_t *getMergedControlData(MotorDMmulti &otherMotor);
 
 protected:
     bool decodeCanRxMessage(const can_rx_message_t &rxMessage) override;
