@@ -70,6 +70,7 @@ private:
     uint8_t m_lastFeedbackSequence;
     uint8_t m_feedbackErrorCount;
     bool m_isConnected;
+    bool m_pendingRestart;
 
 public:
     SuperCapacitor(uint32_t txCanID = 0x061, uint32_t rxCanID = 0x051);
