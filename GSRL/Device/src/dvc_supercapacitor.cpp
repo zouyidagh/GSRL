@@ -37,7 +37,8 @@ SuperCapacitor::SuperCapacitor(uint32_t txCanID, uint32_t rxCanID)
       m_feedbackSequence(0),
       m_lastFeedbackSequence(0),
       m_feedbackErrorCount(0),
-      m_isConnected(false)
+      m_isConnected(false),
+      m_pendingRestart(false)
 {
     static_assert(sizeof(TxData) == 8, "TxData size error");
     static_assert(sizeof(RxData) == 8, "RxData size error");
@@ -92,13 +93,12 @@ const uint8_t *SuperCapacitor::getControlData()
         m_lastFeedbackSequence = m_feedbackSequence; // 滚动更新反馈数据序号
     }
 
-    const uint8_t *data = m_txData;
-
-    // 获取后清除一次性标志
+    // 若标志置位则发送一次系统重启指令
     TxData *tx        = reinterpret_cast<TxData *>(m_txData);
-    tx->systemRestart = 0;
+    tx->systemRestart = m_pendingRestart ? 1 : 0;
+    m_pendingRestart  = false;
 
-    return data;
+    return m_txData;
 }
 
 /**
@@ -177,8 +177,7 @@ void SuperCapacitor::setEnableDCDC(bool enable)
  */
 void SuperCapacitor::setSystemRestart()
 {
-    TxData *tx        = reinterpret_cast<TxData *>(m_txData);
-    tx->systemRestart = 1;
+    m_pendingRestart = true;
 }
 
 /**
