@@ -10,51 +10,46 @@
 本驱动基于 GSRL 库，为云深处 DeepRobotics J60 关节电机提供 CAN 通信（1Mbps）支持。
 
 模块基于 C++ 封装，包含：
-- 电机驱动类 `MotorDeepJ60`（别名 `MotorJ60`）
+
+- 电机驱动类 `MotorDeepJ60`
 - J60 私有协议（命令索引式 CAN ID）的打包/解析逻辑
 - 上电后 DISABLE → ENABLE → CONTROL 的自动状态机，掉线自动重连
 
 ## 2：功能特性
 
 本驱动可实现：
+
 - 与 GSRL 框架其他电机一致的基类接口：
-    - `torqueCurrentClosedloopControl` 力矩前馈控制（板外 PID）
-    - `angleClosedloopControl` / `revolutionsClosedloopControl` 位置闭环
-    - `externalClosedloopControl` 外部反馈闭环
+  - `torqueCurrentClosedloopControl` 力矩前馈控制（板外 PID）
+  - `angleClosedloopControl` / `revolutionsClosedloopControl` 位置闭环
+  - `externalClosedloopControl` 外部反馈闭环
 - `hardwareMitControl(p, v, t, kp, kd)` 可选的板载 PD 模式（关节板内部执行 PD 控制律）
 - `enable()` / `disable()` / `clearError()` 的高级状态控制
 - 实时获取电机反馈：
-    - 当前角度 `getCurrentAngle()`（单位 rad，范围 [0, 2π)）
-    - 多圈绝对位置 `getCurrentRevolutions()`（单位 圈，J60 原生支持 ±6.37 圈）
-    - 当前角速度 `getCurrentAngularVelocity()`（单位 rad/s）
-    - 当前扭矩 `getCurrentTorqueNm()`（单位 Nm，高精度）
-    - 电机温度 / MOSFET 温度（℃）
-    - 电机连接状态 `isMotorConected()`
+  - 当前角度 `getCurrentAngle()`（单位 rad，范围 [0, 2π)）
+  - 多圈绝对位置 `getCurrentRevolutions()`（单位 圈，J60 原生支持 ±6.37 圈）
+  - 当前角速度 `getCurrentAngularVelocity()`（单位 rad/s）
+  - 当前扭矩 `getCurrentTorqueNm()`（单位 Nm，高精度）
+  - 电机温度 / MOSFET 温度（℃）
+  - 电机连接状态 `isMotorConected()`
 
 特性：
+
 - 使用 J60 CAN 协议 V2.0（MIT 单帧控制模式）
 - 数据自动限幅（P: ±40 rad，V: ±40 rad/s，T: ±40 Nm，Kp: [0,1023]，Kd: [0,51]）
 - 掉线后自动重发 ENABLE 命令重连
 - 不依赖独立的保活任务，每次 `convert...()` 调用即根据状态机自动选择要发送的帧
 
-## 3：适用环境
+## 3：J60 电机准备工作
 
-- MCU：STM32 系列（F4/H7 等）
-- 开发环境：VS Code + EIDE / Keil / CubeMX
-- 依赖库：
-    - STM32 HAL `drv_can.h`
-    - 自定义库：`dvc_motor.hpp`、`alg_pid.hpp`、`alg_general.hpp`
-- 通信环境：CAN（波特率 1Mbps，建议开启自动重传与自动错误恢复，本项目已在 CubeMX 中配置）
+使用前请调试J60参数：
 
-## 4：J60 电机准备工作
-
-使用前请先用 J60 调试工具：
-1. 设置关节 ID（默认为 1）
+1. 使用串口调试助手设置关节 ID（默认为 1 但仍需设置）
 2. 标定零位（运行时 CAN 协议不提供设零位命令）
 3. 合理设置 CAN 超时时间（建议 200ms 左右），避免掉线后电机失控乱跳
-4. 若需要配置电流环带宽等参数，请发送 `CMD_SAVE_CONFIG` 永久生效
+4. 若需要使用CAN配置电机参数，请发送 `CMD_SAVE_CONFIG` 永久生效
 
-## 5：典型用法实例
+## 4：典型用法实例
 
 ```cpp
 #include "dvc_motor.hpp"
@@ -123,12 +118,12 @@ inline void transmitMotorsControlData()
 }
 ```
 
-## 6：注意事项
+## 5：注意事项
 
-1. **关节 ID**：确保 `MotorJ60` 构造参数与调试工具中设置的 ID 一致，否则 `decodeCanRxMessage` 无法匹配反馈帧，`isMotorConected()` 将一直返回 `false`。
+1. **关节 ID**：确保 `MotorJ60` 构造参数与调试工具中设置的 ID 一致，否则 `decodeCanRxMessage` 无法匹配反馈帧，`isMotorConected()` 将一直返回 `false`，目前发现默认ID不一定为1，请务必自行使用串口调试助手进行设置。
 2. **上电顺序**：建议先给控制板上电并启动 CAN，再给 J60 电机上电；驱动器上电默认失能，本驱动构造后默认意图为使能，随即发送 ENABLE 命令，收到应答后进入控制模式。
 3. **控制周期**：建议在 `500Hz ~ 1kHz` 范围内调用闭环函数 + 发送 CAN 帧。控制周期过低会导致位置闭环响应迟钝，过高会占用 CAN 总线带宽影响多电机通信。
-4. **力矩安全**：J60 最大输出扭矩 ±40 N·m，调试初期请使用较小的控制器输出限幅（如 ±5 N·m）。
+4. **力矩安全**：J60 最大输出扭矩 ±40 N·m，调试初期请使用较小的输出限幅，保证自身安全。
 5. **板载 PD vs 板外 PID**：默认启用板外 PID（`Kp=Kd=0`，仅下发扭矩前馈），适合已有 GSRL 框架内 PID 的场景。若需要板载快速 PD 响应，调用 `hardwareMitControl()` 切换模式，调用 `exitHardwareMitMode()` 退回板外 PID 模式。
 6. **掉线重连**：若 CAN 总线断开，基类连续检测到序号无更新后会将 `isMotorConected()` 置为 `false`；驱动会自动回到 `J60_DISABLED` 状态并在下一帧重发 ENABLE。CAN 恢复后几帧内即可重新使能。
 7. **温度监控**：J60 以单字节复用方式上报温度，`Bit56` 标志位区分 MOSFET 温度与电机温度。使用 `getMotorTemperature()` 和 `getMosfetTemperature()` 分别读取，建议在高负载运行时轮询检查。
