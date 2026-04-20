@@ -534,23 +534,56 @@ uint8_t MotorGM6020::getDjiMotorID() const
 
 /**
  * @brief 合并两个同控制ID的大疆电机CAN控制数据, 同时触发双方掉线检测
- * @param otherMotor 另一个同控制ID的大疆电机
+ * @param m2 另一个同控制ID的大疆电机
  * @return const uint8_t* 合并后的8字节CAN控制数据
  * @note 返回的指针指向内部静态缓冲区, 下次调用会覆盖
+ * @note 各电机的m_motorControlData只在自己槽位非零、其它字节恒为0,
+ *       因此按位OR可天然拼出完整帧
  */
-const uint8_t *MotorGM6020::getMergedControlData(MotorGM6020 &otherMotor)
+const uint8_t *MotorGM6020::getMergedControlData(MotorGM6020 &m2)
 {
-    const uint8_t *selfData  = this->getMotorControlData();
-    const uint8_t *otherData = otherMotor.getMotorControlData();
+    const uint8_t *selfData = this->getMotorControlData();
+    const uint8_t *m2Data   = m2.getMotorControlData();
 
-    if (m_motorControlMessageID != otherMotor.m_motorControlMessageID) {
+    if (m_motorControlMessageID != m2.m_motorControlMessageID) {
         return selfData;
     }
 
-    memcpy(m_mergedData, selfData, 8);
-    uint8_t offset           = (uint8_t)(((otherMotor.m_djiMotorID - 1) & 0x3) * 2);
-    m_mergedData[offset]     = otherData[offset];
-    m_mergedData[offset + 1] = otherData[offset + 1];
+    for (uint8_t i = 0; i < 8; ++i) {
+        m_mergedData[i] = selfData[i] | m2Data[i];
+    }
+    return m_mergedData;
+}
+
+/**
+ * @brief 合并三个同控制ID的大疆电机CAN控制数据, 同时触发各方掉线检测
+ * @return const uint8_t* 合并后的8字节CAN控制数据
+ * @note 返回的指针指向内部静态缓冲区, 下次调用会覆盖
+ */
+const uint8_t *MotorGM6020::getMergedControlData(MotorGM6020 &m2, MotorGM6020 &m3)
+{
+    getMergedControlData(m2); // m_mergedData = self | m2
+
+    const uint8_t *m3Data = m3.getMotorControlData();
+    if (m_motorControlMessageID == m3.m_motorControlMessageID) {
+        for (uint8_t i = 0; i < 8; ++i) m_mergedData[i] |= m3Data[i];
+    }
+    return m_mergedData;
+}
+
+/**
+ * @brief 合并四个同控制ID的大疆电机CAN控制数据, 同时触发各方掉线检测
+ * @return const uint8_t* 合并后的8字节CAN控制数据
+ * @note 返回的指针指向内部静态缓冲区, 下次调用会覆盖
+ */
+const uint8_t *MotorGM6020::getMergedControlData(MotorGM6020 &m2, MotorGM6020 &m3, MotorGM6020 &m4)
+{
+    getMergedControlData(m2, m3); // m_mergedData = self | m2 | m3
+
+    const uint8_t *m4Data = m4.getMotorControlData();
+    if (m_motorControlMessageID == m4.m_motorControlMessageID) {
+        for (uint8_t i = 0; i < 8; ++i) m_mergedData[i] |= m4Data[i];
+    }
     return m_mergedData;
 }
 

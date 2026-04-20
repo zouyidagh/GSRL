@@ -123,7 +123,9 @@ protected:
 public:
     MotorGM6020(uint8_t dji6020MotorID, Controller *controller, uint16_t encoderOffset = 0);
     uint8_t getDjiMotorID() const;
-    const uint8_t *getMergedControlData(MotorGM6020 &otherMotor);
+    const uint8_t *getMergedControlData(MotorGM6020 &m2);
+    const uint8_t *getMergedControlData(MotorGM6020 &m2, MotorGM6020 &m3);
+    const uint8_t *getMergedControlData(MotorGM6020 &m2, MotorGM6020 &m3, MotorGM6020 &m4);
 
 protected:
     bool decodeCanRxMessage(const can_rx_message_t &rxMessage) override;
@@ -218,7 +220,8 @@ public:
     MotorDMmulti(uint8_t dmMotorID, Controller *controller, uint16_t encoderOffset = 0);
     uint8_t getDmMotorID() const;
     uint8_t getErrorState() const;
-    // getMergedControlData 继承自 MotorGM6020，控制ID不同的电机间调用会被ID守卫拦截
+    // getMergedControlData (2/3/4路重载) 继承自 MotorGM6020，
+    // 控制ID不同的电机间调用会被ID守卫拦截，跨族合并不会污染数据
 
 protected:
     bool decodeCanRxMessage(const can_rx_message_t &rxMessage) override;
