@@ -537,8 +537,6 @@ uint8_t MotorGM6020::getDjiMotorID() const
  * @param m2 另一个同控制ID的大疆电机
  * @return const uint8_t* 合并后的8字节CAN控制数据
  * @note 返回的指针指向内部静态缓冲区, 下次调用会覆盖
- * @note 各电机的m_motorControlData只在自己槽位非零、其它字节恒为0,
- *       因此按位OR可天然拼出完整帧
  */
 const uint8_t *MotorGM6020::getMergedControlData(MotorGM6020 &m2)
 {
@@ -761,8 +759,8 @@ MotorDMmulti::MotorDMmulti(uint8_t dmMotorID, Controller *controller, uint16_t e
  */
 void MotorDMmulti::convertControllerOutputToMotorControlData()
 {
-    int16_t giveControlValue = (int16_t)m_controllerOutput; // 控制电流标幺值
-    uint8_t offset           = (uint8_t)(((m_djiMotorID - 1) & 0x3) * 2);
+    int16_t giveControlValue       = (int16_t)m_controllerOutput; // 控制电流标幺值
+    uint8_t offset                 = (uint8_t)(((m_djiMotorID - 1) & 0x3) * 2);
     m_motorControlData[offset]     = (uint8_t)(giveControlValue & 0xFF);        // 低 8 位
     m_motorControlData[offset + 1] = (uint8_t)((giveControlValue >> 8) & 0xFF); // 高 8 位
 }

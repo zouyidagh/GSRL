@@ -220,8 +220,6 @@ public:
     MotorDMmulti(uint8_t dmMotorID, Controller *controller, uint16_t encoderOffset = 0);
     uint8_t getDmMotorID() const;
     uint8_t getErrorState() const;
-    // getMergedControlData (2/3/4路重载) 继承自 MotorGM6020，
-    // 控制ID不同的电机间调用会被ID守卫拦截，跨族合并不会污染数据
 
 protected:
     bool decodeCanRxMessage(const can_rx_message_t &rxMessage) override;
