@@ -543,12 +543,11 @@ const uint8_t *MotorGM6020::getMergedControlData(MotorGM6020 &m2)
     const uint8_t *selfData = this->getMotorControlData();
     const uint8_t *m2Data   = m2.getMotorControlData();
 
-    if (m_motorControlMessageID != m2.m_motorControlMessageID) {
-        return selfData;
-    }
-
-    for (uint8_t i = 0; i < 8; ++i) {
-        m_mergedData[i] = selfData[i] | m2Data[i];
+    // 始终以 self 作为基线, 保证 m_mergedData 永远 "至少包含 self",
+    // 使 3/4-motor 重载的叠加链在任一 ID 不匹配时仍然正确
+    memcpy(m_mergedData, selfData, 8);
+    if (m_motorControlMessageID == m2.m_motorControlMessageID) {
+        for (uint8_t i = 0; i < 8; ++i) m_mergedData[i] |= m2Data[i];
     }
     return m_mergedData;
 }
