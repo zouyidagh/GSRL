@@ -342,7 +342,6 @@ public:
 protected:
     bool decodeCanRxMessage(const can_rx_message_t &rxMessage) override;
     void convertControllerOutputToMotorControlData() override;
-    fp32 updateCurrentRevolutions() override { return m_currentRevolutions; }
 
     // 构造 CAN ID: (cmdIdx << 5) | jointField
     static constexpr uint16_t makeCanId(uint8_t jointField, uint8_t cmdIdx)

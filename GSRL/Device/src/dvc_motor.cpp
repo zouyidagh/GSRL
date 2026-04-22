@@ -548,7 +548,7 @@ const uint8_t *MotorGM6020::getMergedControlData(MotorGM6020 &otherMotor)
     }
 
     memcpy(m_mergedData, selfData, 8);
-    uint8_t offset             = (uint8_t)(((otherMotor.m_djiMotorID - 1) & 0x3) * 2);
+    uint8_t offset           = (uint8_t)(((otherMotor.m_djiMotorID - 1) & 0x3) * 2);
     m_mergedData[offset]     = otherData[offset];
     m_mergedData[offset + 1] = otherData[offset + 1];
     return m_mergedData;
@@ -731,8 +731,8 @@ MotorDMmulti::MotorDMmulti(uint8_t dmMotorID, Controller *controller, uint16_t e
  */
 void MotorDMmulti::convertControllerOutputToMotorControlData()
 {
-    int16_t giveControlValue = (int16_t)m_controllerOutput; // 控制电流标幺值
-    uint8_t offset           = (uint8_t)(((m_dmMotorID - 1) & 0x3) * 2);
+    int16_t giveControlValue       = (int16_t)m_controllerOutput; // 控制电流标幺值
+    uint8_t offset                 = (uint8_t)(((m_dmMotorID - 1) & 0x3) * 2);
     m_motorControlData[offset]     = (uint8_t)(giveControlValue & 0xFF);        // 低 8 位
     m_motorControlData[offset + 1] = (uint8_t)((giveControlValue >> 8) & 0xFF); // 高 8 位
 }
@@ -797,7 +797,7 @@ const uint8_t *MotorDMmulti::getMergedControlData(MotorDMmulti &otherMotor)
     }
 
     memcpy(m_mergedData, selfData, 8);
-    uint8_t offset             = (uint8_t)(((otherMotor.m_dmMotorID - 1) & 0x3) * 2);
+    uint8_t offset           = (uint8_t)(((otherMotor.m_dmMotorID - 1) & 0x3) * 2);
     m_mergedData[offset]     = otherData[offset];
     m_mergedData[offset + 1] = otherData[offset + 1];
     return m_mergedData;
@@ -1093,7 +1093,7 @@ void MotorDeepJ60::clearError()
     // 复位硬件状态为 DISABLED，下一次 convert 会先发 ERROR_RESET 再按 intent 走 ENABLE 流程。
     // 这里直接构造一次 ERROR_RESET header，由 convert 中的状态判断兜底。
     m_pendingErrorReset = true;
-    m_state = J60_DISABLED;
+    m_state             = J60_DISABLED;
 }
 
 /**
@@ -1308,10 +1308,7 @@ bool MotorDeepJ60::decodeCanRxMessage(const can_rx_message_t &rxMessage)
             fp32 decodedTempC =
                 GSRLMath::convertUintToFloat((int)tempRaw, J60_TEMP_MIN, J60_TEMP_MAX, 7);
 
-            // 维持基类不变式：m_currentAngle ∈ [0, 2PI)
             m_currentAngle           = GSRLMath::normalizeAngle(decodedPosRad);
-            m_lastAngle              = m_currentAngle; // 防止基类 updateCurrentRevolutions 误累积 (本类已 override)
-            m_currentRevolutions     = decodedPosRad / (2.0f * MATH_PI);
             m_currentAngularVelocity = decodedVelRadps;
             m_currentTorqueNm        = decodedTorNm;
             // 兼容基类 getCurrentTorqueCurrent()：以 mNm 存储，钳位到 int16 范围 (±32767)；
