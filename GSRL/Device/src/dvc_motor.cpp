@@ -548,7 +548,7 @@ const uint8_t *MotorGM6020::getMergedControlData(MotorGM6020 &otherMotor)
     }
 
     memcpy(m_mergedData, selfData, 8);
-    uint8_t offset             = (uint8_t)(((otherMotor.m_djiMotorID - 1) & 0x3) * 2);
+    uint8_t offset           = (uint8_t)(((otherMotor.m_djiMotorID - 1) & 0x3) * 2);
     m_mergedData[offset]     = otherData[offset];
     m_mergedData[offset + 1] = otherData[offset + 1];
     return m_mergedData;
@@ -731,8 +731,8 @@ MotorDMmulti::MotorDMmulti(uint8_t dmMotorID, Controller *controller, uint16_t e
  */
 void MotorDMmulti::convertControllerOutputToMotorControlData()
 {
-    int16_t giveControlValue = (int16_t)m_controllerOutput; // 控制电流标幺值
-    uint8_t offset           = (uint8_t)(((m_dmMotorID - 1) & 0x3) * 2);
+    int16_t giveControlValue       = (int16_t)m_controllerOutput; // 控制电流标幺值
+    uint8_t offset                 = (uint8_t)(((m_dmMotorID - 1) & 0x3) * 2);
     m_motorControlData[offset]     = (uint8_t)(giveControlValue & 0xFF);        // 低 8 位
     m_motorControlData[offset + 1] = (uint8_t)((giveControlValue >> 8) & 0xFF); // 高 8 位
 }
@@ -797,7 +797,7 @@ const uint8_t *MotorDMmulti::getMergedControlData(MotorDMmulti &otherMotor)
     }
 
     memcpy(m_mergedData, selfData, 8);
-    uint8_t offset             = (uint8_t)(((otherMotor.m_dmMotorID - 1) & 0x3) * 2);
+    uint8_t offset           = (uint8_t)(((otherMotor.m_dmMotorID - 1) & 0x3) * 2);
     m_mergedData[offset]     = otherData[offset];
     m_mergedData[offset + 1] = otherData[offset + 1];
     return m_mergedData;
@@ -1026,5 +1026,310 @@ void MotorLKMG::setBrake(bool isBraked)
         m_motorControlData[5] = 0x00;
         m_motorControlData[6] = 0x00;
         m_motorControlData[7] = 0x00;
+    }
+}
+
+/******************************************************************************
+ *                          云深处 J60 关节电机类实现
+ ******************************************************************************/
+
+/**
+ * @brief 云深处 J60 关节电机构造函数
+ * @param jointID 关节 ID (1~15)，需与 J60 调试工具中设置的 ID 一致
+ * @param controller 电机绑定的控制器 (板外 PID 模式下使用；若仅使用 hardwareMitControl 可传 nullptr)
+ * @note CAN 控制 ID 与反馈 ID 均按协议 (cmdIdx<<5) | jointField 动态生成，
+ *       基类存储的 ID 仅作 CONTROL 帧的"默认值"，实际发送帧的 StdId 会在状态机切换时更新。
+ */
+MotorDeepJ60::MotorDeepJ60(uint8_t jointID, Controller *controller)
+    : Motor(makeCanId(jointID, CMD_CONTROL),
+            makeCanId((uint8_t)(jointID + 0x10), CMD_CONTROL),
+            controller,
+            0),
+      m_jointID(jointID),
+      m_state(J60_DISABLED),
+      m_intent(INTENT_ENABLE),
+      m_currentTorqueNm(0.0f),
+      m_mosfetTemperature(0),
+      m_motorTemperature(0),
+      m_pendingErrorReset(false),
+      m_useHardwareMitMode(false),
+      m_mitTargetPosition(0.0f),
+      m_mitTargetVelocity(0.0f),
+      m_mitTargetTorque(0.0f),
+      m_mitKp(0.0f),
+      m_mitKd(0.0f)
+{
+    // 基类构造函数已将 DLC=8、IDE=STD、RTR=DATA 设置完毕。
+    // 首次 convertControllerOutputToMotorControlData() 会按 m_state 构建 ENABLE 帧。
+}
+
+/**
+ * @brief 将用户意图置为使能
+ * @note 仅修改意图；实际 ENABLE 帧在下一次 convertControllerOutputToMotorControlData() 中发送。
+ */
+void MotorDeepJ60::enable()
+{
+    m_intent = INTENT_ENABLE;
+}
+
+/**
+ * @brief 将用户意图置为失能
+ * @note 仅修改意图；实际 DISABLE 帧在下一次 convertControllerOutputToMotorControlData() 中发送。
+ */
+void MotorDeepJ60::disable()
+{
+    m_intent = INTENT_DISABLE;
+}
+
+/**
+ * @brief 请求发送清错命令
+ * @note 发送完 ERROR_RESET 后，驱动器回到失能态，m_state 下一周期会被重置为 J60_DISABLED，
+ *       若 m_intent 仍为 INTENT_ENABLE，会自动重新 ENABLE。
+ * @note 为简化状态机，本方法通过复用 buildErrorResetFrame 在下一次 convert 时插入一帧，
+ *       使用独立标志位触发一次性发送。
+ */
+void MotorDeepJ60::clearError()
+{
+    // 复位硬件状态为 DISABLED，下一次 convert 会先发 ERROR_RESET 再按 intent 走 ENABLE 流程。
+    // 这里直接构造一次 ERROR_RESET header，由 convert 中的状态判断兜底。
+    m_pendingErrorReset = true;
+    m_state             = J60_DISABLED;
+}
+
+/**
+ * @brief 硬件 MIT 模式控制 (板载 PD)
+ * @param targetPositionRad 目标位置 (rad, [-40, 40])
+ * @param targetVelocityRadps 目标速度 (rad/s, [-40, 40])
+ * @param targetTorqueNm 前馈扭矩 (Nm, [-40, 40])
+ * @param kp 位置环刚度 ([0, 1023])
+ * @param kd 速度环阻尼 ([0, 51])
+ * @note 调用后控制帧由本方法参数生成，直到 exitHardwareMitMode() 被调用才恢复板外 PID 模式。
+ * @note 电机板执行的控制律为 T = Kp*(pDes - pFb) + Kd*(vDes - vFb) + tFF。
+ */
+void MotorDeepJ60::hardwareMitControl(fp32 targetPositionRad, fp32 targetVelocityRadps,
+                                      fp32 targetTorqueNm, fp32 kp, fp32 kd)
+{
+    m_useHardwareMitMode = true;
+    m_mitTargetPosition  = targetPositionRad;
+    m_mitTargetVelocity  = targetVelocityRadps;
+    m_mitTargetTorque    = targetTorqueNm;
+    m_mitKp              = kp;
+    m_mitKd              = kd;
+    convertControllerOutputToMotorControlData();
+}
+
+/**
+ * @brief 退出硬件 MIT 模式，恢复使用基类 Controller 作为力矩源
+ */
+void MotorDeepJ60::exitHardwareMitMode()
+{
+    m_useHardwareMitMode = false;
+    m_mitTargetPosition  = 0.0f;
+    m_mitTargetVelocity  = 0.0f;
+    m_mitTargetTorque    = 0.0f;
+    m_mitKp              = 0.0f;
+    m_mitKd              = 0.0f;
+}
+
+/**
+ * @brief 构造 ENABLE 帧 (cmdIdx=2, DLC=0)
+ */
+void MotorDeepJ60::buildEnableFrame()
+{
+    m_motorControlHeader.StdId = makeCanId(m_jointID, CMD_ENABLE);
+    m_motorControlHeader.DLC   = 0;
+    memset(m_motorControlData, 0, sizeof(m_motorControlData));
+}
+
+/**
+ * @brief 构造 DISABLE 帧 (cmdIdx=1, DLC=0)
+ */
+void MotorDeepJ60::buildDisableFrame()
+{
+    m_motorControlHeader.StdId = makeCanId(m_jointID, CMD_DISABLE);
+    m_motorControlHeader.DLC   = 0;
+    memset(m_motorControlData, 0, sizeof(m_motorControlData));
+}
+
+/**
+ * @brief 构造 ERROR_RESET 帧 (cmdIdx=17, DLC=0)
+ */
+void MotorDeepJ60::buildErrorResetFrame()
+{
+    m_motorControlHeader.StdId = makeCanId(m_jointID, CMD_ERROR_RESET);
+    m_motorControlHeader.DLC   = 0;
+    memset(m_motorControlData, 0, sizeof(m_motorControlData));
+}
+
+/**
+ * @brief 构造 CONTROL 帧 (cmdIdx=4, DLC=8, MIT 单帧控制)
+ * @param pRad 目标位置 (rad)
+ * @param vRadps 目标速度 (rad/s)
+ * @param tNm 目标扭矩 (Nm)
+ * @param kp 刚度 ([0, 1023])
+ * @param kd 阻尼 ([0, 51])
+ * @note 按协议小端位序：pos[0:15]|vel[16:29]|kp[30:39]|kd[40:47]|tor[48:63]，
+ *       通过 uint64_t 拼装后 memcpy 到 CAN 数据区 (STM32 为小端架构)。
+ */
+void MotorDeepJ60::buildControlFrame(fp32 pRad, fp32 vRadps, fp32 tNm, fp32 kp, fp32 kd)
+{
+    m_motorControlHeader.StdId = makeCanId(m_jointID, CMD_CONTROL);
+    m_motorControlHeader.DLC   = 8;
+
+    // 限幅到协议允许的物理量范围
+    GSRLMath::constrain(pRad, J60_POSITION_MIN, J60_POSITION_MAX);
+    GSRLMath::constrain(vRadps, J60_VELOCITY_MIN, J60_VELOCITY_MAX);
+    GSRLMath::constrain(tNm, J60_TORQUE_MIN, J60_TORQUE_MAX);
+    GSRLMath::constrain(kp, 0.0f, J60_KP_MAX);
+    GSRLMath::constrain(kd, 0.0f, J60_KD_MAX);
+
+    uint64_t pos = (uint64_t)GSRLMath::convertFloatToUint(pRad, J60_POSITION_MIN, J60_POSITION_MAX, 16);
+    uint64_t vel = (uint64_t)GSRLMath::convertFloatToUint(vRadps, J60_VELOCITY_MIN, J60_VELOCITY_MAX, 14);
+    uint64_t kpI = (uint64_t)GSRLMath::convertFloatToUint(kp, 0.0f, J60_KP_MAX, 10);
+    uint64_t kdI = (uint64_t)GSRLMath::convertFloatToUint(kd, 0.0f, J60_KD_MAX, 8);
+    uint64_t tor = (uint64_t)GSRLMath::convertFloatToUint(tNm, J60_TORQUE_MIN, J60_TORQUE_MAX, 16);
+
+    uint64_t payload = 0;
+    payload |= (pos & 0xFFFFull) << 0;  // bit  0-15
+    payload |= (vel & 0x3FFFull) << 16; // bit 16-29
+    payload |= (kpI & 0x3FFull) << 30;  // bit 30-39
+    payload |= (kdI & 0xFFull) << 40;   // bit 40-47
+    payload |= (tor & 0xFFFFull) << 48; // bit 48-63
+
+    memcpy(m_motorControlData, &payload, sizeof(payload));
+}
+
+/**
+ * @brief 根据状态机与用户意图构造当前应发送的帧
+ * @note 状态转移矩阵：
+ *       | intent   | hwState  | 发送帧       |
+ *       | -------- | -------- | ----------- |
+ *       | ENABLE   | DISABLED | ENABLE      |
+ *       | ENABLE   | ENABLED  | CONTROL     |
+ *       | DISABLE  | *        | DISABLE     |
+ * @note 掉线检测：若基类判定失联，则把 m_state 重置为 J60_DISABLED 以触发自动重连。
+ */
+void MotorDeepJ60::convertControllerOutputToMotorControlData()
+{
+    // 掉线探测：若基类已判定失联，则重置硬件状态，下一帧起重发 ENABLE。
+    if (!m_isMotorConnected) {
+        m_state = J60_DISABLED;
+    }
+
+    // 一次性 ERROR_RESET 帧插入 (clearError() 设置)
+    if (m_pendingErrorReset) {
+        m_pendingErrorReset = false;
+        buildErrorResetFrame();
+        return;
+    }
+
+    if (m_intent == INTENT_DISABLE) {
+        buildDisableFrame();
+        return;
+    }
+
+    // m_intent == INTENT_ENABLE
+    if (m_state == J60_DISABLED) {
+        buildEnableFrame();
+        return;
+    }
+
+    // m_intent == INTENT_ENABLE && m_state == J60_ENABLED → 发送控制帧
+    if (m_useHardwareMitMode) {
+        buildControlFrame(m_mitTargetPosition, m_mitTargetVelocity,
+                          m_mitTargetTorque, m_mitKp, m_mitKd);
+    } else {
+        // 板外 PID 模式：Kp=Kd=0，位置/速度目标置零 (不参与板载 PD)，扭矩前馈由 m_controllerOutput 提供。
+        // 基类的 angleClosedloopControl / torqueCurrentClosedloopControl 等已处理 m_controllerOutputPolarity。
+        buildControlFrame(0.0f, 0.0f, m_controllerOutput, 0.0f, 0.0f);
+    }
+}
+
+/**
+ * @brief 解析 J60 反馈 CAN 帧
+ * @param rxMessage CAN 接收消息
+ * @return true ID 属于本关节且命令索引已识别，解析成功
+ * @return false ID 不属于本关节或命令索引未支持
+ * @note J60 反馈 ID 的 Bit0~Bit4 = jointID + 0x10 (驱动器应答时 bit4 置 1)，
+ *       Bit5~Bit10 = 命令索引。本函数按位段精匹配，避免与其它电机 ID 冲突。
+ * @note CONTROL 响应帧 (DLC=8) 的位段 (小端)：
+ *       pos[0:19]|vel[20:39]|tor[40:55]|tempFlag[56]|temp[57:63]
+ */
+bool MotorDeepJ60::decodeCanRxMessage(const can_rx_message_t &rxMessage)
+{
+    uint16_t rxId         = (uint16_t)rxMessage.header.StdId;
+    uint8_t rxJointField  = (uint8_t)(rxId & 0x1Fu);
+    uint8_t rxCmdIndex    = (uint8_t)((rxId >> 5) & 0x3Fu);
+    uint8_t expectedField = (uint8_t)(m_jointID + 0x10u);
+
+    if (rxJointField != expectedField) {
+        return false;
+    }
+
+    switch (rxCmdIndex) {
+        case CMD_ENABLE: {
+            // 使能应答 DLC=1, byte0=0 表示成功
+            if (rxMessage.header.DLC >= 1 && rxMessage.data[0] == 0) {
+                m_state = J60_ENABLED;
+            }
+            return true;
+        }
+        case CMD_DISABLE:
+        case CMD_ERROR_RESET: {
+            // 失能成功 / 清错成功后驱动器均回到失能态，由后续 ENABLE 流程恢复
+            if (rxMessage.header.DLC >= 1 && rxMessage.data[0] == 0) {
+                m_state = J60_DISABLED;
+            }
+            return true;
+        }
+        case CMD_CONTROL: {
+            if (rxMessage.header.DLC != 8) {
+                return false;
+            }
+
+            // 收到控制应答即证明硬件已使能 (驱动器在失能态下收到控制帧也会回应，但仍可作为 online 证据)
+            m_state = J60_ENABLED;
+
+            uint64_t payload = 0;
+            memcpy(&payload, rxMessage.data, 8);
+
+            uint32_t posRaw = (uint32_t)((payload >> 0) & 0xFFFFFull);  // 20 bit
+            uint32_t velRaw = (uint32_t)((payload >> 20) & 0xFFFFFull); // 20 bit
+            uint32_t torRaw = (uint32_t)((payload >> 40) & 0xFFFFull);  // 16 bit
+            uint8_t tempFlg = (uint8_t)((payload >> 56) & 0x1ull);
+            uint8_t tempRaw = (uint8_t)((payload >> 57) & 0x7Full);
+
+            fp32 decodedPosRad =
+                GSRLMath::convertUintToFloat((int)posRaw, J60_POSITION_MIN, J60_POSITION_MAX, 20);
+            fp32 decodedVelRadps =
+                GSRLMath::convertUintToFloat((int)velRaw, J60_VELOCITY_MIN, J60_VELOCITY_MAX, 20);
+            fp32 decodedTorNm =
+                GSRLMath::convertUintToFloat((int)torRaw, J60_TORQUE_MIN, J60_TORQUE_MAX, 16);
+            fp32 decodedTempC =
+                GSRLMath::convertUintToFloat((int)tempRaw, J60_TEMP_MIN, J60_TEMP_MAX, 7);
+
+            m_currentAngle           = GSRLMath::normalizeAngle(decodedPosRad);
+            m_currentAngularVelocity = decodedVelRadps;
+            m_currentTorqueNm        = decodedTorNm;
+            // 兼容基类 getCurrentTorqueCurrent()：以 mNm 存储，钳位到 int16 范围 (±32767)；
+            // 精确扭矩请使用 getCurrentTorqueNm()。
+            fp32 torqueMnm = decodedTorNm * 1000.0f;
+            GSRLMath::constrain(torqueMnm, -32767.0f, 32767.0f);
+            m_currentTorqueCurrent = (int16_t)torqueMnm;
+
+            // 温度：J60 专有成员用 int16_t 存完整范围，基类 m_temperature (int8_t) 钳位
+            fp32 tempClamped = decodedTempC;
+            GSRLMath::constrain(tempClamped, -128.0f, 127.0f);
+            if (tempFlg == 1) {
+                m_motorTemperature = (int16_t)decodedTempC;
+                m_temperature      = (int8_t)tempClamped;
+            } else {
+                m_mosfetTemperature = (int16_t)decodedTempC;
+                m_temperature       = (int8_t)tempClamped;
+            }
+            return true;
+        }
+        default:
+            return false;
     }
 }

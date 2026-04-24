@@ -103,7 +103,7 @@ protected:
     Motor(uint32_t canControlID, uint32_t canFeedbackID, Controller *controller, uint16_t encoderOffset = 0);
     virtual bool decodeCanRxMessage(const can_rx_message_t &rxMessage) = 0;
     virtual void convertControllerOutputToMotorControlData()           = 0;
-    fp32 updateCurrentRevolutions();
+    virtual fp32 updateCurrentRevolutions();
     inline void increaseMotorFeedbackErrorCount();
     inline void clearMotorFeedbackErrorCount();
 };
@@ -259,6 +259,99 @@ public:
 protected:
     bool decodeCanRxMessage(const can_rx_message_t &rxMessage) override;
     void convertControllerOutputToMotorControlData() override;
+};
+
+/**
+ * @brief 云深处 DeepRobotics J60 关节电机类
+ * @note CAN 波特率 1Mbps，标准帧。使用前请用 J60 调试工具标定零位并设置关节 ID (默认为 1)。
+ * @note 构造后，首次 convertControllerOutputToMotorControlData() 会发送 ENABLE 命令，
+ *       收到驱动器应答后进入控制模式；基类检测到掉线后会自动重发 ENABLE 重连。
+ * @note 默认"板外 PID"模式 (Kp=Kd=0)，扭矩目标由 m_controllerOutput 提供 (单位 Nm，
+ *       需与 GSRLMath 框架里的 PID 配合)，可直接使用基类 torqueCurrentClosedloopControl、
+ *       externalClosedloopControl、angleClosedloopControl、revolutionsClosedloopControl 等接口。
+ * @note 若需"板载 PID"模式 (关节驱动板内部执行 PD)，调用 hardwareMitControl(p, v, t, kp, kd)；
+ *       切回板外 PID 请调用 exitHardwareMitMode()。
+ * @details 该类实现了 Motor 类的纯虚函数，用于控制云深处 J60 关节电机。
+ */
+class MotorDeepJ60 : public Motor
+{
+public:
+    enum J60State : uint8_t {
+        J60_DISABLED = 0, // 未使能 (上电初始态或 disable 响应已收到)
+        J60_ENABLED  = 1, // 使能完成，允许发送控制帧
+    };
+
+    enum J60Intent : uint8_t {
+        INTENT_ENABLE  = 0, // 默认意图：保持使能
+        INTENT_DISABLE = 1, // 用户调用 disable() 后进入
+    };
+
+protected:
+    uint8_t m_jointID;           // 关节 ID (1~15)
+    J60State m_state;            // 实际硬件状态 (由反馈帧更新)
+    J60Intent m_intent;          // 用户意图
+    fp32 m_currentTorqueNm;      // 反馈扭矩 (Nm)
+    int16_t m_mosfetTemperature; // MOSFET 温度 (℃)，协议范围 [-20, 200]
+    int16_t m_motorTemperature;  // 电机温度 (℃)，协议范围 [-20, 200]
+    bool m_pendingErrorReset;    // clearError() 设置，convert 中消费
+    // 硬件 MIT 模式缓存 (hardwareMitControl 使用)
+    bool m_useHardwareMitMode;
+    fp32 m_mitTargetPosition; // rad, [-40, 40]
+    fp32 m_mitTargetVelocity; // rad/s, [-40, 40]
+    fp32 m_mitTargetTorque;   // Nm, [-40, 40]
+    fp32 m_mitKp;             // [0, 1023]
+    fp32 m_mitKd;             // [0, 51]
+
+    // 协议物理量范围
+    static constexpr fp32 J60_POSITION_MAX = 40.0f;
+    static constexpr fp32 J60_POSITION_MIN = -40.0f;
+    static constexpr fp32 J60_VELOCITY_MAX = 40.0f;
+    static constexpr fp32 J60_VELOCITY_MIN = -40.0f;
+    static constexpr fp32 J60_TORQUE_MAX   = 40.0f;
+    static constexpr fp32 J60_TORQUE_MIN   = -40.0f;
+    static constexpr fp32 J60_KP_MAX       = 1023.0f;
+    static constexpr fp32 J60_KD_MAX       = 51.0f;
+    static constexpr fp32 J60_TEMP_MAX     = 200.0f;
+    static constexpr fp32 J60_TEMP_MIN     = -20.0f;
+    // J60 命令索引
+    static constexpr uint8_t CMD_DISABLE     = 1;
+    static constexpr uint8_t CMD_ENABLE      = 2;
+    static constexpr uint8_t CMD_CONTROL     = 4;
+    static constexpr uint8_t CMD_ERROR_RESET = 17;
+
+public:
+    MotorDeepJ60(uint8_t jointID, Controller *controller);
+
+    // 用户意图控制
+    void enable();     // 意图置为使能 (下一帧尝试重连/重使能)
+    void disable();    // 意图置为失能 (下一帧开始发 DISABLE)
+    void clearError(); // 发送 ERROR_RESET，后续随重新 ENABLE 恢复
+
+    // 硬件 MIT 模式 (可选，绕开基类 Controller，直接下发五元组)
+    void hardwareMitControl(fp32 targetPositionRad, fp32 targetVelocityRadps,
+                            fp32 targetTorqueNm, fp32 kp, fp32 kd);
+    void exitHardwareMitMode();
+
+    // 状态查询
+    J60State getJ60State() const { return m_state; }
+    fp32 getCurrentTorqueNm() const { return m_currentTorqueNm; }
+    int16_t getMosfetTemperature() const { return m_mosfetTemperature; }
+    int16_t getMotorTemperature() const { return m_motorTemperature; }
+    uint8_t getJointID() const { return m_jointID; }
+
+protected:
+    bool decodeCanRxMessage(const can_rx_message_t &rxMessage) override;
+    void convertControllerOutputToMotorControlData() override;
+
+    // 构造 CAN ID: (cmdIdx << 5) | jointField
+    static constexpr uint16_t makeCanId(uint8_t jointField, uint8_t cmdIdx)
+    {
+        return (uint16_t)(((uint16_t)cmdIdx << 5) | (jointField & 0x1Fu));
+    }
+    void buildEnableFrame();
+    void buildDisableFrame();
+    void buildErrorResetFrame();
+    void buildControlFrame(fp32 pRad, fp32 vRadps, fp32 tNm, fp32 kp, fp32 kd);
 };
 
 /* Exported constants --------------------------------------------------------*/
