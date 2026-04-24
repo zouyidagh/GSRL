@@ -103,7 +103,7 @@ protected:
     Motor(uint32_t canControlID, uint32_t canFeedbackID, Controller *controller, uint16_t encoderOffset = 0);
     virtual bool decodeCanRxMessage(const can_rx_message_t &rxMessage) = 0;
     virtual void convertControllerOutputToMotorControlData()           = 0;
-    virtual fp32 updateCurrentRevolutions();
+    fp32 updateCurrentRevolutions();
     inline void increaseMotorFeedbackErrorCount();
     inline void clearMotorFeedbackErrorCount();
 };
