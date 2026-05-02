@@ -60,8 +60,9 @@ protected:
     Controller *m_controller; // 符合 Controller 接口的控制器
     fp32 m_controllerOutput;
     bool m_controllerOutputPolarity;
+    fp32 m_feedForward; // 一次性前馈, 任一闭环方法调用后自动清零
     uint16_t m_encoderOffset;
-
+    
 public:
     virtual ~Motor() = default;
     // 通信相关
@@ -88,6 +89,7 @@ public:
     // 控制器相关
     void setController(Controller *controller);
     void setControllerOutputPolarity(bool polarity);
+    void setFeedForwardOnce(fp32 feedForward);
     void openloopControl(fp32 controlValue);
     fp32 angleClosedloopControl();
     fp32 angleClosedloopControl(fp32 targetAngle);
@@ -106,6 +108,7 @@ protected:
     fp32 updateCurrentRevolutions();
     inline void increaseMotorFeedbackErrorCount();
     inline void clearMotorFeedbackErrorCount();
+    inline void applyControllerOutputPostProcess();
 };
 
 /**

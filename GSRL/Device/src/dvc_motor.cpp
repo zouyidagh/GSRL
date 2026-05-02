@@ -264,6 +264,18 @@ void Motor::openloopControl(fp32 controlValue)
 }
 
 /**
+ * @brief 设置前馈值
+ * @param feedForward 前馈变量
+ * @note 请在每次控制电机前调用，电机控制方法被调用后会自动清零前馈值
+ * @note 只对闭环方法生效，对硬件控制无效
+ * @note 前馈在极性反转后叠加
+ */
+void Motor::setFeedForwardOnce(fp32 feedForward)
+{
+    m_feedForward = feedForward;
+}
+
+/**
  * @brief 角度闭环控制
  * @return fp32 控制器输出
  * @note 可使用串级PID，反馈数据数组顺序为[角度误差, 角速度]
@@ -273,9 +285,7 @@ fp32 Motor::angleClosedloopControl()
     fp32 angleError      = GSRLMath::normalizeDeltaAngle(m_currentAngle - m_targetAngle);
     fp32 feedBackData[2] = {angleError, m_currentAngularVelocity};
     m_controllerOutput   = m_controller->controllerCalculate(0.0f, feedBackData, 2);
-    if (m_controllerOutputPolarity) {
-        m_controllerOutput = -m_controllerOutput;
-    }
+    applyControllerOutputPostProcess();
     convertControllerOutputToMotorControlData();
     return m_controllerOutput;
 }
@@ -299,9 +309,7 @@ fp32 Motor::angularVelocityClosedloopControl()
 {
     fp32 feedBackData[1] = {m_currentAngularVelocity};
     m_controllerOutput   = m_controller->controllerCalculate(m_targetAngularVelocity, feedBackData, 1);
-    if (m_controllerOutputPolarity) {
-        m_controllerOutput = -m_controllerOutput;
-    }
+    applyControllerOutputPostProcess();
     convertControllerOutputToMotorControlData();
     return m_controllerOutput;
 }
@@ -326,9 +334,7 @@ fp32 Motor::revolutionsClosedloopControl()
 {
     fp32 feedBackData[2] = {m_currentRevolutions, m_currentAngularVelocity};
     m_controllerOutput   = m_controller->controllerCalculate(m_targetRevolutions, feedBackData, 2);
-    if (m_controllerOutputPolarity) {
-        m_controllerOutput = -m_controllerOutput;
-    }
+    applyControllerOutputPostProcess();
     convertControllerOutputToMotorControlData();
     return m_controllerOutput;
 }
@@ -352,9 +358,7 @@ int16_t Motor::torqueCurrentClosedloopControl()
 {
     fp32 feedBackData[1] = {(fp32)m_currentTorqueCurrent};
     m_controllerOutput   = m_controller->controllerCalculate((fp32)m_targetTorqueCurrent, feedBackData, 1);
-    if (m_controllerOutputPolarity) {
-        m_controllerOutput = -m_controllerOutput;
-    }
+    applyControllerOutputPostProcess();
     convertControllerOutputToMotorControlData();
     return m_controllerOutput;
 }
@@ -379,9 +383,7 @@ int16_t Motor::torqueCurrentClosedloopControl(int16_t targetTorqueCurrent)
 fp32 Motor::externalClosedloopControl(fp32 setPoint, const fp32 *feedBackData, uint8_t feedBackSize)
 {
     m_controllerOutput = m_controller->controllerCalculate(setPoint, feedBackData, feedBackSize);
-    if (m_controllerOutputPolarity) {
-        m_controllerOutput = -m_controllerOutput;
-    }
+    applyControllerOutputPostProcess();
     convertControllerOutputToMotorControlData();
     return m_controllerOutput;
 }
@@ -415,6 +417,7 @@ Motor::Motor(uint32_t canControlID, uint32_t canFeedbackID, Controller *controll
       m_controller(controller),
       m_controllerOutput(0.0f),
       m_controllerOutputPolarity(false),
+      m_feedForward(0.0f),
       m_encoderOffset(encoderOffset)
 {
     m_motorControlHeader.DLC   = 8;
@@ -465,6 +468,21 @@ inline void Motor::clearMotorFeedbackErrorCount()
     m_motorFeedbackErrorCount = 0;
     m_isMotorConnected        = true;
 }
+
+/**
+ * @brief 电机接收到控制器输出的后处理
+ * @note 前馈自动归零
+ * @note 前馈在控制器极性调换之后应用
+ */
+inline void Motor::applyControllerOutputPostProcess()
+{
+    if (m_controllerOutputPolarity) {
+        m_controllerOutput = -m_controllerOutput;
+    }
+    m_controllerOutput += m_feedForward;
+    m_feedForward = 0.0f;
+}
+
 
 /******************************************************************************
  *                           GM6020电机类实现
