@@ -503,7 +503,10 @@ MotorGM6020::MotorGM6020(uint8_t dji6020MotorID, Controller *controller, uint16_
             dji6020MotorID + 0x204,
             controller,
             encoderOffset),
-      m_djiMotorID(dji6020MotorID) {}
+      m_djiMotorID(dji6020MotorID),
+      m_encoderHistory{0, 0},
+      m_currentRPMSpeed(0),
+      m_mergedData{} {}
 
 /**
  * @brief 将控制器输出转换为GM6020电机CAN控制数据
@@ -842,6 +845,8 @@ MotorLKMG::MotorLKMG(uint8_t lkMotorID, Controller *controller, uint16_t encoder
       m_lkMotorID(lkMotorID),
       m_encoderRaw(0),
       m_gearboxRatio(gearboxRatio),
+      m_maxVelocity(0.0f),
+      m_isMotorClockwise(false),
       m_isBraked(true) {}
 
 /**
